@@ -9,15 +9,15 @@ This is a Julia-based simulation project that models an energy community with so
 ## Setup Instructions
 
 1. **Julia Installation and Setup:**\
-    ``bash
+    ``
     sudo add-apt-repository ppa:staticfloat/juliareleases
    ``
    
-     ``bash
+     ``
     sudo apt-get update
     ``
    
-     ``bash
+     ``
     sudo apt-get install julia
     ``
    
