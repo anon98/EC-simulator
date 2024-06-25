@@ -16,4 +16,4 @@ Thumbs.db
 *.log
 *.sqlite
 
-output/images/
+./output/images/
