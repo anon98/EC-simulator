@@ -28,4 +28,3 @@ function cleanup_images()
         println("Image directory '$image_directory' not found.")
     end
 end
-cleanup_images()
