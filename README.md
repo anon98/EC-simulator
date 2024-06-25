@@ -40,7 +40,11 @@ Install Packages:
 5. Directory Structure
 
     simulation.jl: Main simulation script.
+   
     local_market.jl: Local market logic.
+   
     output/: Directory for simulation output.
+   
+   
         images/: Contains simulation output images.
 
