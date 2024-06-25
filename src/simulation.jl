@@ -4,7 +4,7 @@ using Plots
 include("local_market.jl")
 
 # Constants
-const DT = 1.0  # Time step in hours
+const DT = 0.2  # Time step in hours
 const SIMULATION_HOURS = 24  # Total simulation time in hours
 const BATTERY_CAPACITY = 200.0  # kWh
 const BATTERY_MAX_CHARGE_RATE = 50.0  # kW

@@ -2,7 +2,8 @@
 using ArgParse
 using FilePathsBase: mkpath  # For creating directories if they don't exist
 include("simulation.jl")
-
+include("cleanup.jl")
+cleanup_images()
 function parse_arguments()
     s = ArgParseSettings()
     
