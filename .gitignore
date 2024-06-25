@@ -16,5 +16,5 @@ Thumbs.db
 *.log
 *.sqlite
 
-* output/images_EC/
+output/images_EC/
 
