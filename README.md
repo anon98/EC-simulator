@@ -1,4 +1,5 @@
-# test_julia
+# EC_Simulator
+
 
 ## Overview
 
