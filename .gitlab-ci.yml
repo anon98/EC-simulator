@@ -9,4 +9,4 @@ Julia CI:
     - julia -e 'import Pkg; Pkg.add("Plots"); Pkg.add("ArgParse"); Pkg.add("FilePathsBase"); Pkg.instantiate()'
     - julia src/energy_community.jl --num_nodes 6 --pv_nodes "1,2,3,4" --battery_nodes "2,3,5" --cooperative --cooperative_nodes "1,2,3,4"
   tags:
-    - julia  # Optionally specify tags for specific runners, adjust as needed
+    - julia  # Optionally specify tags for specific runners, adjust as needed testing
