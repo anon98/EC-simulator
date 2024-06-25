@@ -17,20 +17,13 @@ jobs:
         uses: actions/checkout@v2
 
       - name: Set up Julia
-        uses: julia-actions/setup-julia@latest
+        uses: julia-actions/setup-julia@v1  # Use v1 since v2 is not recognized
         with:
-          version: 1.7  # Adjust to match your Julia version
+          version: 1.7
 
-      - name: Install Plots.jl
-        run: julia -e 'import Pkg; Pkg.add("Plots")'
-        
-      - name: Install ArgParse.jl
-        run: julia -e 'import Pkg; Pkg.add("ArgParse")'
-
+      - name: Install Project Dependencies
+        run: |
+          julia -e 'import Pkg; Pkg.add("Plots"); Pkg.add("ArgParse"); Pkg.instantiate()'
 
       - name: Run energy_community.jl script
         run: julia src/energy_community.jl --num_nodes 6 --pv_nodes "1,2,3,4" --battery_nodes "2,3,5" --cooperative --cooperative_nodes "1,2,3,4"
-
-
-
-     
