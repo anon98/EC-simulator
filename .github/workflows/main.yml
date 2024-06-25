@@ -1,0 +1,32 @@
+name: Julia CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v2
+
+      - name: Set up Julia
+        uses: julia-actions/setup-julia@latest
+        with:
+          version: 1.7  # Adjust to match your Julia version
+
+      - name: Install Plots.jl
+        run: julia -e 'import Pkg; Pkg.add("Plots")'
+
+      - name: Run energy_community.jl script
+        run: julia src/energy_community.jl --num_nodes 6 --pv_nodes "1,2,3,4" --battery_nodes "2,3,5" --cooperative --cooperative_nodes "1,2,3,4"
+
+
+
+     
