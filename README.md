@@ -29,7 +29,7 @@ Install Packages:
 3. **Clone the Repository:**
 
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/anon98/test_julia.git
    cd test_julia/src
 
 4.  **Run the simulation**
