@@ -1,0 +1,19 @@
+# Julia specific
+*.ji
+*.julia
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Ignore compiled binaries
+*.exe
+*.dll
+*.so
+*.dylib
+
+# Ignore logs and databases
+*.log
+*.sqlite
+
+output/images/
