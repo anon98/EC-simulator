@@ -31,7 +31,7 @@ Install Packages:
 
    ```bash
    git clone https://github.com/anon98/test_julia.git
-   cd test_julia/src
+   cd EC_simulator/src
 
 4.  **Run the simulation**
 
