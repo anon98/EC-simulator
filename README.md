@@ -37,7 +37,7 @@ Install Packages:
  ```bash
    julia energy_community.jl --num_nodes 6 --pv_nodes "1,2,3,4" --battery_nodes "2,3,5" --cooperative --cooperative_nodes "1,2,3,4"
 ```
-Directory Structure
+5. Directory Structure
 
     simulation.jl: Main simulation script.
     local_market.jl: Local market logic.
