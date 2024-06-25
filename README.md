@@ -2,7 +2,7 @@
 
 ## Overview
 
-test_julia: this is a Julia-based simulation project that models an energy community with solar generation, battery storage, and cooperative energy management.
+test_julia: \\This is a Julia-based simulation project that models an energy community with solar generation, battery storage, and cooperative energy management.
 
 ## Setup Instructions
 
