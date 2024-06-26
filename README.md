@@ -26,7 +26,7 @@ This is a Julia-based simulation test project that models an energy community wi
     ``
    
 Install Packages:
-    ``bash
+       
     (@v1.7) pkg> add Random
     (@v1.7) pkg> add Plots
 
