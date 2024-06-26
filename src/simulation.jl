@@ -1,4 +1,3 @@
-# simulation.jl
 using Random
 using Plots
 include("local_market.jl")
@@ -13,9 +12,9 @@ const BATTERY_INITIAL_SOC = 0.5  # Initial state of charge (percentage)
 
 # Functions for solar generation and grid price
 function solar_generation(t, node, amplitude_factor)
-    amplitude = 50.0 + 10.0 * amplitude_factor  # Adjusted by node factor
+    amplitude = 50.0 + 10.0 * amplitude_factor  # Adjusted to match the peak generation in watts
     if t >= 7 && t <= 19
-        return amplitude * max(0, cos(π * (t - 7) / 12))
+        return amplitude * max(0, sin(π * (t - 7) / 12))
     else
         return 0
     end
@@ -33,7 +32,7 @@ end
 
 # Load profile function
 function load_profile(t, node)
-    base_load = 50.0 + 10.0 * node  # Base load for each node
+    base_load = 40.0 + 10.0 * node  # Base load for each node
     variability = 20.0 * randn()  # Random daily variability
     time_dependent_load = 0
 
@@ -56,6 +55,7 @@ function simulate_energy_community(num_nodes, simulation_hours, dt, pv_nodes, ba
     battery_soc = zeros(num_nodes, num_steps)
     grid_interactions = zeros(num_nodes, num_steps)
     net_profit = 0.0
+    node_profits = zeros(num_nodes)
 
     solar_generation_data = [if node in pv_nodes solar_generation(t, node, 10.0 * node) else 0 end for t in times, node in 1:num_nodes]
     load_profile_data = [load_profile(t, node) for t in times, node in 1:num_nodes]
@@ -67,14 +67,15 @@ function simulate_energy_community(num_nodes, simulation_hours, dt, pv_nodes, ba
         # Calculate net power available for each node
         net_power_available = [solar_generation_data[i, n] - load_profile_data[i, n] for n in 1:num_nodes]
         
+        total_cooperative_profit = 0.0  # Reset total cooperative profit for this time step
+
         if cooperative
             # Distribute excess power cooperatively among cooperative nodes
-            net_power_available, total_excess_power, total_deficit_power, transactions, current_transactions = local_market(cooperative_nodes, net_power_available, current_grid_price, dt)
+            net_power_available, transactions, current_transactions, total_cooperative_profit = local_market(cooperative_nodes, net_power_available, current_grid_price, dt)
             transaction_matrix[:, :, i] = current_transactions
-            net_profit += total_excess_power * current_grid_price * dt
-            net_profit -= total_deficit_power * current_grid_price * dt
-            
+
             for (idx, node) in enumerate(cooperative_nodes)
+                node_profits[node] += transactions[idx] * current_grid_price * dt
                 grid_interactions[node, i] += transactions[idx]
             end
         end
@@ -86,12 +87,12 @@ function simulate_energy_community(num_nodes, simulation_hours, dt, pv_nodes, ba
                     excess_power = net_power_available[n] - charge_power
                     if excess_power > 0
                         grid_interactions[n, i] += -excess_power
-                        net_profit += excess_power * current_grid_price * dt
+                        node_profits[n] += excess_power * current_grid_price * dt
                     end
                     battery_soc[n, i+1] = min(battery_soc[n, i] + charge_power * dt, BATTERY_CAPACITY)
                 else
                     grid_interactions[n, i] += -net_power_available[n]
-                    net_profit += net_power_available[n] * current_grid_price * dt
+                    node_profits[n] += net_power_available[n] * current_grid_price * dt
                 end
             else
                 deficit_power = -net_power_available[n]
@@ -101,12 +102,12 @@ function simulate_energy_community(num_nodes, simulation_hours, dt, pv_nodes, ba
                     else
                         needed_power = deficit_power - battery_soc[n, i] / dt
                         grid_interactions[n, i] += needed_power
-                        net_profit -= needed_power * current_grid_price * dt
+                        node_profits[n] -= needed_power * current_grid_price * dt
                         battery_soc[n, i+1] = 0
                     end
                 else
                     grid_interactions[n, i] += deficit_power
-                    net_profit -= deficit_power * current_grid_price * dt
+                    node_profits[n] -= deficit_power * current_grid_price * dt
                 end
             end
             
@@ -114,7 +115,7 @@ function simulate_energy_community(num_nodes, simulation_hours, dt, pv_nodes, ba
         end
     end
 
-    
-
-    return times, solar_generation_data, load_profile_data, battery_soc, grid_interactions, net_profit, transaction_matrix
+    return times, solar_generation_data, load_profile_data, battery_soc, grid_interactions, node_profits, transaction_matrix
 end
+
+
