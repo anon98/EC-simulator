@@ -38,7 +38,14 @@ function negotiate_price(excess_power, deficit_power, grid_price)
     if total_power == 0
         return grid_price / 2  # If no power to negotiate, split the grid price
     else
-        # Bargaining solution: split based on available power
-        return grid_price * (excess_power / total_power)
+        
+        # This simple approach uses proportional bargaining power
+        surplus_ratio = excess_power / total_power
+        deficit_ratio = deficit_power / total_power
+        
+        # Weighted price based on surplus and deficit ratios
+        negotiated_price = grid_price * surplus_ratio + (grid_price / 2) * deficit_ratio
+        return negotiated_price
     end
 end
+
