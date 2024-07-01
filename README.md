@@ -1,7 +1,7 @@
 # EC-Simulator
 ![GitHub commit activity](https://img.shields.io/github/commit-activity/w/anon98/EC_simulator)
 ![GitHub License](https://img.shields.io/github/license/anon98/EC_simulator)
-[![Build](https://github.com/anon98/EC_simulator/actions/workflows/main.yml/badge.svg)](https://github.com/anon98/EC_simulator/blob/main/.github/workflows/main.yml)
+[![Build](https://github.com/anon98/EC-simulator/actions/workflows/main.yml/badge.svg)](https://github.com/anon98/EC-simulator/blob/main/.github/workflows/main.yml)
 
 
 
