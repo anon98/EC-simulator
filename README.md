@@ -35,7 +35,7 @@ Install Packages:
 
    ```bash
    git clone https://github.com/anon98/test_julia.git
-   cd EC_simulator
+   cd EC-simulator
 3. **Config File**
     Settings/config.json
     example:
