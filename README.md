@@ -41,13 +41,17 @@ Install Packages:
     example:
    ```bash
    {
-    "num_nodes": 16,
-    "pv_nodes": [1, 2, 3, 4, 6, 8, 9, 10],
-    "battery_nodes": [2, 3, 5, 7, 9, 10, 11, 12],
-    "cooperative": true,
-    "cooperative_nodes": [1, 2, 3, 4],
-    "dt": 0.2,
-    "simulation_hours": 24
+    "simulation_parameters": {
+        "dt": 0.1,
+        "simulation_hours": 24
+    },
+    "grid_parameters": {
+        "num_nodes": 16,
+        "pv_nodes": [1, 2, 3, 4, 6, 8, 9, 10],
+        "battery_nodes": [2, 3, 5, 7, 9, 10, 11, 12],
+        "cooperative": false,
+        "cooperative_nodes": [1, 2, 3, 4]
+    }
 }
 
    
