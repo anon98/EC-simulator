@@ -29,7 +29,7 @@ Install Packages:
        
     (@v1.7) pkg> add Random
     (@v1.7) pkg> add Plots
-    (@v1.7) pkg> add FileBasePath
+    (@v1.7) pkg> add FilePathsBase
 3. **Clone the Repository:**
 
    ```bash
