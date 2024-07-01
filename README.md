@@ -30,18 +30,35 @@ Install Packages:
     (@v1.7) pkg> add Random
     (@v1.7) pkg> add Plots
     (@v1.7) pkg> add FilePathsBase
+    (@v1.7) pkg> add JSON
 3. **Clone the Repository:**
 
    ```bash
    git clone https://github.com/anon98/test_julia.git
-   cd EC_simulator/src
+   cd EC_simulator
+3. **Config File**
+    Settings/config.json
+    example:
+   ```bash
+   {
+    "num_nodes": 16,
+    "pv_nodes": [1, 2, 3, 4, 6, 8, 9, 10],
+    "battery_nodes": [2, 3, 5, 7, 9, 10, 11, 12],
+    "cooperative": true,
+    "cooperative_nodes": [1, 2, 3, 4],
+    "dt": 0.2,
+    "simulation_hours": 24
+}
 
-4.  **Run the simulation**
+   
+   
+
+5.  **Run the simulation**
 
  ```bash
-   julia energy_community.jl --num_nodes 6 --pv_nodes "1,2,3,4" --battery_nodes "2,3,5" --cooperative --cooperative_nodes "1,2,3,4"
+   julia src/energy_community.jl 
 ```
-5. Directory Structure
+6. Directory Structure
 
     simulation.jl: Main simulation script.
    
