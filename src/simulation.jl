@@ -9,6 +9,8 @@ const BATTERY_CAPACITY = 200.0  # kWh
 const BATTERY_MAX_CHARGE_RATE = 50.0  # kW
 const BATTERY_MAX_DISCHARGE_RATE = 50.0  # kW
 const BATTERY_INITIAL_SOC = 0.5  # Initial state of charge (percentage)
+const BATTERY_MIN_SOC = 0.2  # Minimum state of charge (percentage)
+const BATTERY_MAX_SOC = 0.8  # Maximum state of charge (percentage)
 
 # Functions for solar generation and grid price
 function solar_generation(t, node, amplitude_factor)
@@ -57,6 +59,11 @@ function simulate_energy_community(num_nodes, simulation_hours, dt, pv_nodes, ba
     net_profit = 0.0
     node_profits = zeros(num_nodes)
 
+    # Initialize battery SOC
+    for n in battery_nodes
+        battery_soc[n, 1] = BATTERY_CAPACITY * BATTERY_INITIAL_SOC
+    end
+
     solar_generation_data = [if node in pv_nodes solar_generation(t, node, 10.0 * node) else 0 end for t in times, node in 1:num_nodes]
     load_profile_data = [load_profile(t, node) for t in times, node in 1:num_nodes]
     transaction_matrix = zeros(length(cooperative_nodes), length(cooperative_nodes), num_steps)
@@ -89,7 +96,7 @@ function simulate_energy_community(num_nodes, simulation_hours, dt, pv_nodes, ba
                         grid_interactions[n, i] += -excess_power
                         node_profits[n] += excess_power * current_grid_price * dt
                     end
-                    battery_soc[n, i+1] = min(battery_soc[n, i] + charge_power * dt, BATTERY_CAPACITY)
+                    battery_soc[n, i+1] = min(battery_soc[n, i] + charge_power * dt, BATTERY_CAPACITY * BATTERY_MAX_SOC)
                 else
                     grid_interactions[n, i] += -net_power_available[n]
                     node_profits[n] += net_power_available[n] * current_grid_price * dt
@@ -97,13 +104,14 @@ function simulate_energy_community(num_nodes, simulation_hours, dt, pv_nodes, ba
             else
                 deficit_power = -net_power_available[n]
                 if n in battery_nodes
-                    if battery_soc[n, i] >= deficit_power * dt
-                        battery_soc[n, i+1] = battery_soc[n, i] - deficit_power * dt
-                    else
-                        needed_power = deficit_power - battery_soc[n, i] / dt
-                        grid_interactions[n, i] += needed_power
-                        node_profits[n] -= needed_power * current_grid_price * dt
-                        battery_soc[n, i+1] = 0
+                    if battery_soc[n, i] > BATTERY_MIN_SOC * BATTERY_CAPACITY
+                        discharge_power = min(deficit_power, BATTERY_MAX_DISCHARGE_RATE, (battery_soc[n, i] - BATTERY_MIN_SOC * BATTERY_CAPACITY) / dt)
+                        battery_soc[n, i+1] = battery_soc[n, i] - discharge_power * dt
+                        deficit_power -= discharge_power
+                    end
+                    if deficit_power > 0
+                        grid_interactions[n, i] += deficit_power
+                        node_profits[n] -= deficit_power * current_grid_price * dt
                     end
                 else
                     grid_interactions[n, i] += deficit_power
@@ -111,11 +119,9 @@ function simulate_energy_community(num_nodes, simulation_hours, dt, pv_nodes, ba
                 end
             end
             
-            battery_soc[n, i+1] = clamp(battery_soc[n, i+1], 0, BATTERY_CAPACITY)
+            battery_soc[n, i+1] = clamp(battery_soc[n, i+1], BATTERY_MIN_SOC * BATTERY_CAPACITY, BATTERY_CAPACITY * BATTERY_MAX_SOC)
         end
     end
 
     return times, solar_generation_data, load_profile_data, battery_soc, grid_interactions, node_profits, transaction_matrix
 end
-
-

@@ -15,6 +15,7 @@ Thumbs.db
 # Ignore logs and databases
 *.log
 *.sqlite
+outputs/images_EC/
 
 
 

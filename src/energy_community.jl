@@ -1,54 +1,24 @@
-# energy_community.jl
-using ArgParse
+using JSON
 using FilePathsBase: mkpath  # For creating directories if they don't exist
 include("simulation.jl")
 include("cleanup.jl")
 cleanup_images()
-function parse_arguments()
-    s = ArgParseSettings()
-    
-    @add_arg_table! s begin
-        "--num_nodes"
-        help = "Number of nodes in the energy community"
-        arg_type = Int
-        default = 5
-        
-        "--pv_nodes"
-        help = "Comma-separated list of nodes with PV systems"
-        arg_type = String
-        default = "1,3,4"
-        
-        "--battery_nodes"
-        help = "Comma-separated list of nodes with batteries"
-        arg_type = String
-        default = "2,3,5"
-        
-        "--cooperative"
-        help = "Flag to enable cooperative behavior"
-        action = :store_true
-        
-        "--cooperative_nodes"
-        help = "Comma-separated list of nodes that are cooperative"
-        arg_type = String
-        default = "1,2"
-    end
-    
-    parsed_args = parse_args(s)
-    
-    num_nodes = parsed_args["num_nodes"]
-    pv_nodes = [parse(Int, x) for x in split(parsed_args["pv_nodes"], ",")]
-    battery_nodes = [parse(Int, x) for x in split(parsed_args["battery_nodes"], ",")]
-    cooperative = parsed_args["cooperative"]
-    cooperative_nodes = [parse(Int, x) for x in split(parsed_args["cooperative_nodes"], ",")]
 
-    return num_nodes, pv_nodes, battery_nodes, cooperative, cooperative_nodes
+function load_config(file_path::String)
+    config = JSON.parsefile(file_path)
+    num_nodes = config["num_nodes"]
+    pv_nodes = config["pv_nodes"]
+    battery_nodes = config["battery_nodes"]
+    cooperative = config["cooperative"]
+    cooperative_nodes = config["cooperative_nodes"]
+    dt = config["dt"]
+    simulation_hours = config["simulation_hours"]
+
+    return num_nodes, pv_nodes, battery_nodes, cooperative, cooperative_nodes, dt, simulation_hours
 end
 
-function central_management(num_nodes, pv_nodes, battery_nodes, cooperative, cooperative_nodes)
-    dt = 1.0
-    simulation_hours = 24
-
-    times, solar_generation_data, load_profile_data, battery_soc, grid_interactions, net_profit, transaction_matrix = simulate_energy_community(num_nodes, SIMULATION_HOURS, DT, pv_nodes, battery_nodes, cooperative, cooperative_nodes)
+function central_management(num_nodes, pv_nodes, battery_nodes, cooperative, cooperative_nodes, dt, simulation_hours)
+    times, solar_generation_data, load_profile_data, battery_soc, grid_interactions, net_profit, transaction_matrix = simulate_energy_community(num_nodes, simulation_hours, dt, pv_nodes, battery_nodes, cooperative, cooperative_nodes)
     
     println("Total Net Profit for $num_nodes nodes: $net_profit Euros")
 
@@ -98,5 +68,7 @@ function central_management(num_nodes, pv_nodes, battery_nodes, cooperative, coo
     end
 end
 
-num_nodes, pv_nodes, battery_nodes, cooperative, cooperative_nodes = parse_arguments()
-central_management(num_nodes, pv_nodes, battery_nodes, cooperative, cooperative_nodes)
+# Load configuration from JSON file
+config_path = joinpath(@__DIR__, "..", "settings", "config.json")
+num_nodes, pv_nodes, battery_nodes, cooperative, cooperative_nodes, dt, simulation_hours = load_config(config_path)
+central_management(num_nodes, pv_nodes, battery_nodes, cooperative, cooperative_nodes, dt, simulation_hours)
