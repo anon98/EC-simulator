@@ -6,13 +6,18 @@ cleanup_images()
 
 function load_config(file_path::String)
     config = JSON.parsefile(file_path)
-    num_nodes = config["num_nodes"]
-    pv_nodes = config["pv_nodes"]
-    battery_nodes = config["battery_nodes"]
-    cooperative = config["cooperative"]
-    cooperative_nodes = config["cooperative_nodes"]
-    dt = config["dt"]
-    simulation_hours = config["simulation_hours"]
+    
+    simulation_parameters = config["simulation_parameters"]
+    grid_parameters = config["grid_parameters"]
+    
+    dt = simulation_parameters["dt"]
+    simulation_hours = simulation_parameters["simulation_hours"]
+    
+    num_nodes = grid_parameters["num_nodes"]
+    pv_nodes = grid_parameters["pv_nodes"]
+    battery_nodes = grid_parameters["battery_nodes"]
+    cooperative = grid_parameters["cooperative"]
+    cooperative_nodes = grid_parameters["cooperative_nodes"]
 
     return num_nodes, pv_nodes, battery_nodes, cooperative, cooperative_nodes, dt, simulation_hours
 end
