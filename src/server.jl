@@ -1,0 +1,258 @@
+module Server
+
+using HTTP
+using JSON
+using Dates
+
+include("scenario_config.jl")
+include("data_schema.jl")
+include("data_generation.jl")
+include("scenario_generator.jl")
+
+# Include main simulator components
+include("types.jl")
+include("market.jl")
+include("utils.jl")
+include("simulation.jl")
+
+using .ScenarioConfig
+using .DataSchema
+using .DataGeneration
+using .ScenarioGenerator
+using .Types
+using .Market
+using .Utils
+using .Simulation
+
+export start_server, stop_server
+
+# Global state
+const active_scenarios = Dict{String, Any}()
+const server_ref = Ref{Union{HTTP.Server, Nothing}}(nothing)
+
+function start_server(;port::Int=8080, host::String="127.0.0.1")
+    println("Starting LEC Scenario Server on http://$host:$port")
+    
+    router = HTTP.Router()
+    
+    # API Routes
+    HTTP.register!(router, "GET", "/api/templates", handle_get_templates)
+    HTTP.register!(router, "POST", "/api/scenarios/generate", handle_generate_scenario)
+    HTTP.register!(router, "GET", "/api/scenarios", handle_list_scenarios)
+    HTTP.register!(router, "GET", "/api/scenarios/*", handle_get_scenario)
+    HTTP.register!(router, "POST", "/api/simulation/run", handle_run_simulation)
+    
+    # Static files
+    HTTP.register!(router, "GET", "/*", handle_static)
+    
+    server_ref[] = HTTP.serve!(router, host, port; verbose=false)
+    
+    println("Server started successfully!")
+    println("Open http://$host:$port/scenario_builder.html in your browser")
+    
+    return server_ref[]
+end
+
+function stop_server()
+    if server_ref[] !== nothing
+        close(server_ref[])
+        println("Server stopped")
+    end
+end
+
+# API Handlers
+
+function handle_get_templates(req::HTTP.Request)
+    templates = Dict(
+        name => Dict(
+            "name" => tmpl.name,
+            "num_nodes" => tmpl.num_nodes,
+            "node_types" => tmpl.node_types,
+            "pv_penetration" => tmpl.pv_penetration,
+            "battery_penetration" => tmpl.battery_penetration,
+            "duration_days" => Dates.value(tmpl.end_time - tmpl.start_time) / (1000 * 3600 * 24),
+            "market_model" => tmpl.market_model
+        )
+        for (name, tmpl) in ScenarioTemplate
+    )
+    
+    return HTTP.Response(200, JSON.json(templates))
+end
+
+function handle_generate_scenario(req::HTTP.Request)
+    try
+        body = JSON.parse(String(req.body))
+        
+        # Build scenario from request
+        scenario = Scenario(
+            get(body, "name", "Custom Scenario"),
+            get(body, "num_nodes", 10),
+            Dict{String, Int}(body["node_types"]),
+            get(body, "pv_penetration", 0.5),
+            get(body, "battery_penetration", 0.3),
+            DateTime(body["start_time"], "yyyy-mm-dd HH:MM:SS"),
+            DateTime(body["end_time"], "yyyy-mm-dd HH:MM:SS"),
+            get(body, "time_step_minutes", 60),
+            get(body, "latitude", 50.0),
+            get(body, "longitude", 10.0),
+            get(body, "season", "summer"),
+            get(body, "market_model", "P2PNashBargaining"),
+            get(body, "cooperative_fraction", 0.8)
+        )
+        
+        # Generate scenario
+        output_dir = generate_scenario(scenario)
+        
+        # Store in active scenarios
+        scenario_id = replace(scenario.name, " " => "_")
+        active_scenarios[scenario_id] = Dict(
+            "scenario" => scenario,
+            "output_dir" => output_dir,
+            "generated_at" => now()
+        )
+        
+        response = Dict(
+            "status" => "success",
+            "scenario_id" => scenario_id,
+            "output_dir" => output_dir
+        )
+        
+        return HTTP.Response(200, JSON.json(response))
+    catch e
+        error_response = Dict(
+            "status" => "error",
+            "message" => string(e)
+        )
+        return HTTP.Response(500, JSON.json(error_response))
+    end
+end
+
+function handle_list_scenarios(req::HTTP.Request)
+    scenarios_list = [
+        Dict(
+            "id" => id,
+            "name" => info["scenario"].name,
+            "generated_at" => string(info["generated_at"])
+        )
+        for (id, info) in active_scenarios
+    ]
+    
+    return HTTP.Response(200, JSON.json(scenarios_list))
+end
+
+function handle_get_scenario(req::HTTP.Request)
+    # Extract scenario ID from path
+    path_parts = split(req.target, "/")
+    if length(path_parts) >= 4
+        scenario_id = path_parts[4]
+        
+        if haskey(active_scenarios, scenario_id)
+            info = active_scenarios[scenario_id]
+            response = Dict(
+                "scenario" => info["scenario"],
+                "output_dir" => info["output_dir"]
+            )
+            return HTTP.Response(200, JSON.json(response))
+        end
+    end
+    
+    return HTTP.Response(404, JSON.json(Dict("error" => "Scenario not found")))
+end
+
+function handle_run_simulation(req::HTTP.Request)
+    try
+        body = JSON.parse(String(req.body))
+        scenario_id = body["scenario_id"]
+        
+        # Find the scenario directory
+        scenario_dir = "scenarios/$scenario_id"
+        
+        if !isdir(scenario_dir)
+            return HTTP.Response(404, JSON.json(Dict("error" => "Scenario directory not found")))
+        end
+        
+        # Load the config
+        config_path = joinpath(scenario_dir, "config.json")
+        if !isfile(config_path)
+            return HTTP.Response(404, JSON.json(Dict("error" => "Config file not found")))
+        end
+        
+        # Run simulation using LECSimulator
+        params, community = load_config(config_path)
+        
+        # Override market model if specified in request
+        if haskey(body, "market_model")
+            market_type_str = body["market_model"]
+            println("Running simulation with market model: $market_type_str")
+            
+            community.market_model = if market_type_str == "CommunitySelfConsumption"
+                CommunitySelfConsumption()
+            elseif market_type_str == "SDRPricing"
+                SDRPricing()
+            elseif market_type_str == "PayAsClear"
+                PayAsClear()
+            else
+                P2PNashBargaining()
+            end
+        end
+        
+        println("Starting simulation for scenario: $scenario_id")
+        results = run_simulation(params, community)
+        kpis =calculate_kpis(results, params)
+        
+        # Export results
+        output_file = joinpath(scenario_dir, "simulation_results.json")
+        export_to_json(results, kpis, output_file)
+        println("Simulation complete. Results saved to: $output_file")
+        
+        response = Dict(
+            "status" => "success",
+            "scenario_id" => scenario_id,
+            "results_file" => output_file,
+            "kpis" => kpis
+        )
+        
+        return HTTP.Response(200, JSON.json(response))
+    catch e
+        error_response = Dict(
+            "status" => "error",
+            "message" => string(e)
+        )
+        return HTTP.Response(500, JSON.json(error_response))
+    end
+end
+
+function handle_static(req::HTTP.Request)
+    # Serve static files from dashboard/ or scenarios/
+    filepath = if req.target == "/"
+        "dashboard/index.html"
+    elseif startswith(req.target, "/scenarios/")
+        # Serve scenario files
+        req.target[2:end]  # Remove leading /
+    else
+        "dashboard" * req.target
+    end
+    
+    if isfile(filepath)
+        content = read(filepath, String)
+        content_type = get_content_type(filepath)
+        return HTTP.Response(200, [("Content-Type", content_type)], content)
+    else
+        return HTTP.Response(404, "File not found: $filepath")
+    end
+end
+
+function get_content_type(filepath::String)
+    ext = lowercase(splitext(filepath)[2])
+    types = Dict(
+        ".html" => "text/html",
+        ".css" => "text/css",
+        ".js" => "application/javascript",
+        ".json" => "application/json",
+        ".png" => "image/png",
+        ".jpg" => "image/jpeg"
+    )
+    return get(types, ext, "text/plain")
+end
+
+end

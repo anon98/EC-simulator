@@ -1,127 +1,166 @@
+module Simulation
+
 using Random
-using Plots
-include("local_market.jl")
+using ..Types
+using ..Market
 
-# Constants
-const DT = 0.2  # Time step in hours
-const SIMULATION_HOURS = 24  # Total simulation time in hours
-const BATTERY_CAPACITY = 200.0  # kWh
-const BATTERY_MAX_CHARGE_RATE = 50.0  # kW
-const BATTERY_MAX_DISCHARGE_RATE = 50.0  # kW
-const BATTERY_INITIAL_SOC = 0.5  # Initial state of charge (percentage)
-const BATTERY_MIN_SOC = 0.2  # Minimum state of charge (percentage)
-const BATTERY_MAX_SOC = 0.8  # Maximum state of charge (percentage)
+export run_simulation
 
-# Functions for solar generation and grid price
-function solar_generation(t, node, amplitude_factor)
-    amplitude = 50.0 + 10.0 * amplitude_factor  # Adjusted to match the peak generation in watts
+# --- Physics Functions ---
+
+function calculate_solar_generation(t, pv::PVSystem)
+    amplitude = 50.0 + 10.0 * pv.amplitude_factor
     if t >= 7 && t <= 19
         return amplitude * max(0, sin(π * (t - 7) / 12))
     else
-        return 0
+        return 0.0
     end
 end
 
-function grid_price(t)
-    if t >= 7 && t <= 10  # Morning peak hours
-        return 0.15  # Higher price in dollars per kWh
-    elseif t >= 18 && t <= 21  # Evening peak hours
-        return 0.20  # Highest price in dollars per kWh
-    else
-        return 0.10  # Off-peak hours cheaper price
-    end
-end
-
-# Load profile function
-function load_profile(t, node)
-    base_load = 40.0 + 10.0 * node  # Base load for each node
-    variability = 20.0 * randn()  # Random daily variability
-    time_dependent_load = 0
-
-    if t >= 6 && t < 9  # Early morning peak
-        time_dependent_load = 30.0
-    elseif t >= 18 && t <= 22  # Evening peak
-        time_dependent_load = 40.0
-    elseif t >= 0 && t < 5  # Late night
-        time_dependent_load = -20.0  # Reduce load during typical off-peak hours
-    end
-
-    return base_load + variability + time_dependent_load
-end
-
-# Simulation function for the energy community
-function simulate_energy_community(num_nodes, simulation_hours, dt, pv_nodes, battery_nodes, cooperative, cooperative_nodes)
-    times = collect(0:dt:simulation_hours)
-    num_steps = length(times)
+function calculate_load(t, load::Load)
+    # Re-implementing the logic from original load_profile
+    # Note: The random variability should ideally be pre-generated or seeded for reproducibility
+    # For now, we keep it simple as per original code
     
-    battery_soc = zeros(num_nodes, num_steps)
-    grid_interactions = zeros(num_nodes, num_steps)
-    net_profit = 0.0
-    node_profits = zeros(num_nodes)
+    variability = load.variability * randn()
+    time_dependent_load = 0.0
 
-    # Initialize battery SOC
-    for n in battery_nodes
-        battery_soc[n, 1] = BATTERY_CAPACITY * BATTERY_INITIAL_SOC
+    if t >= 6 && t < 9
+        time_dependent_load = 30.0
+    elseif t >= 18 && t <= 22
+        time_dependent_load = 40.0
+    elseif t >= 0 && t < 5
+        time_dependent_load = -20.0
     end
 
-    solar_generation_data = [if node in pv_nodes solar_generation(t, node, 10.0 * node) else 0 end for t in times, node in 1:num_nodes]
-    load_profile_data = [load_profile(t, node) for t in times, node in 1:num_nodes]
-    transaction_matrix = zeros(length(cooperative_nodes), length(cooperative_nodes), num_steps)
+    return load.base_load + variability + time_dependent_load
+end
 
-    for i in 1:num_steps-1
-        current_grid_price = grid_price(times[i])
+function get_grid_price(t)
+    if t >= 7 && t <= 10
+        return 0.15
+    elseif t >= 18 && t <= 21
+        return 0.20
+    else
+        return 0.10
+    end
+end
 
-        # Calculate net power available for each node
-        net_power_available = [solar_generation_data[i, n] - load_profile_data[i, n] for n in 1:num_nodes]
+# --- Simulation Loop ---
+
+function run_simulation(params::SimulationParams, community::Community)
+    times = collect(0:params.dt:params.simulation_hours)
+    num_steps = length(times)
+    num_nodes = length(community.nodes)
+    
+    # Result arrays
+    solar_gen_res = zeros(num_steps, num_nodes)
+    load_res = zeros(num_steps, num_nodes)
+    battery_soc_res = zeros(num_steps, num_nodes)
+    grid_interactions_res = zeros(num_steps, num_nodes)
+    node_profits = zeros(num_nodes)
+    
+    # Initialize SOC
+    for (i, node) in enumerate(community.nodes)
+        if node.battery !== nothing
+            battery_soc_res[1, i] = node.battery.soc
+        end
+    end
+    
+    for t_idx in 1:num_steps-1
+        t = times[t_idx]
+        current_grid_price = get_grid_price(t)
         
-        total_cooperative_profit = 0.0  # Reset total cooperative profit for this time step
-
-        if cooperative
-            # Distribute excess power cooperatively among cooperative nodes
-            net_power_available, transactions, current_transactions, total_cooperative_profit = local_market(cooperative_nodes, net_power_available, current_grid_price, dt)
-            transaction_matrix[:, :, i] = current_transactions
-
-            for (idx, node) in enumerate(cooperative_nodes)
-                node_profits[node] += transactions[idx] * current_grid_price * dt
-                grid_interactions[node, i] += transactions[idx]
-            end
+        # 1. Calculate Generation and Load for all nodes
+        for (i, node) in enumerate(community.nodes)
+            gen = node.pv !== nothing ? calculate_solar_generation(t, node.pv) : 0.0
+            load = calculate_load(t, node.load)
+            
+            node.current_generation = gen
+            node.current_load = load
+            node.net_power = gen - load
+            
+            solar_gen_res[t_idx, i] = gen
+            load_res[t_idx, i] = load
         end
         
-        for n in 1:num_nodes
-            if net_power_available[n] > 0
-                if n in battery_nodes
-                    charge_power = min(net_power_available[n], BATTERY_MAX_CHARGE_RATE)
-                    excess_power = net_power_available[n] - charge_power
-                    if excess_power > 0
-                        grid_interactions[n, i] += -excess_power
-                        node_profits[n] += excess_power * current_grid_price * dt
-                    end
-                    battery_soc[n, i+1] = min(battery_soc[n, i] + charge_power * dt, BATTERY_CAPACITY * BATTERY_MAX_SOC)
+        # 2. Market / Cooperative Logic
+        # Distribute excess power among cooperative nodes
+        p2p_transactions, _, _ = solve_market(community, current_grid_price, params.dt)
+        
+        # 3. Battery and Grid Interaction
+        for (i, node) in enumerate(community.nodes)
+            # Apply P2P transactions first
+            # If p2p_transactions[i] > 0, node BOUGHT power (received)
+            # If p2p_transactions[i] < 0, node SOLD power (gave away)
+            
+            # Adjust net power by P2P transaction
+            # If I sold power (negative transaction), I have less power available.
+            # If I bought power (positive transaction), I have more power available.
+            # Wait, let's check the sign convention in market.jl
+            # market.jl: transactions[buyer] += amount. So positive means receiving power.
+            
+            # Effective net power after P2P
+            effective_net_power = node.net_power + p2p_transactions[i]
+            
+            # Update profits from P2P (simplified, assuming price difference handled in market or here)
+            # The market.jl calculated 'total_cooperative_profit'. 
+            # Here we just track grid interactions.
+            
+            if effective_net_power > 0
+                # Excess power
+                if node.battery !== nothing
+                    charge_power = min(effective_net_power, node.battery.max_charge_rate)
+                    
+                    # Check capacity constraints
+                    max_energy_can_add = node.battery.max_soc * node.battery.capacity - node.battery.soc
+                    charge_power = min(charge_power, max_energy_can_add / params.dt)
+                    
+                    node.battery.soc += charge_power * params.dt
+                    
+                    excess_to_grid = effective_net_power - charge_power
+                    grid_interactions_res[t_idx, i] = -excess_to_grid # Negative means export
+                    node_profits[i] += excess_to_grid * current_grid_price * params.dt
                 else
-                    grid_interactions[n, i] += -net_power_available[n]
-                    node_profits[n] += net_power_available[n] * current_grid_price * dt
+                    grid_interactions_res[t_idx, i] = -effective_net_power
+                    node_profits[i] += effective_net_power * current_grid_price * params.dt
                 end
             else
-                deficit_power = -net_power_available[n]
-                if n in battery_nodes
-                    if battery_soc[n, i] > BATTERY_MIN_SOC * BATTERY_CAPACITY
-                        discharge_power = min(deficit_power, BATTERY_MAX_DISCHARGE_RATE, (battery_soc[n, i] - BATTERY_MIN_SOC * BATTERY_CAPACITY) / dt)
-                        battery_soc[n, i+1] = battery_soc[n, i] - discharge_power * dt
-                        deficit_power -= discharge_power
-                    end
-                    if deficit_power > 0
-                        grid_interactions[n, i] += deficit_power
-                        node_profits[n] -= deficit_power * current_grid_price * dt
-                    end
+                # Deficit power
+                deficit = -effective_net_power
+                if node.battery !== nothing
+                    discharge_power = min(deficit, node.battery.max_discharge_rate)
+                    
+                    # Check energy constraints
+                    max_energy_can_draw = node.battery.soc - node.battery.min_soc * node.battery.capacity
+                    discharge_power = min(discharge_power, max_energy_can_draw / params.dt)
+                    
+                    node.battery.soc -= discharge_power * params.dt
+                    
+                    deficit_from_grid = deficit - discharge_power
+                    grid_interactions_res[t_idx, i] = deficit_from_grid # Positive means import
+                    node_profits[i] -= deficit_from_grid * current_grid_price * params.dt
                 else
-                    grid_interactions[n, i] += deficit_power
-                    node_profits[n] -= deficit_power * current_grid_price * dt
+                    grid_interactions_res[t_idx, i] = deficit
+                    node_profits[i] -= deficit * current_grid_price * params.dt
                 end
             end
             
-            battery_soc[n, i+1] = clamp(battery_soc[n, i+1], BATTERY_MIN_SOC * BATTERY_CAPACITY, BATTERY_CAPACITY * BATTERY_MAX_SOC)
+            # Record SOC for next step
+            battery_soc_res[t_idx+1, i] = node.battery !== nothing ? node.battery.soc : 0.0
         end
     end
+    
+    results = Dict(
+        "times" => times,
+        "solar_generation" => solar_gen_res,
+        "load_profile" => load_res,
+        "battery_soc" => battery_soc_res,
+        "grid_interactions" => grid_interactions_res,
+        "node_profits" => node_profits
+    )
+    
+    return results
+end
 
-    return times, solar_generation_data, load_profile_data, battery_soc, grid_interactions, node_profits, transaction_matrix
 end

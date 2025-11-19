@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LEC Scenario Builder</title>
+    <link rel="stylesheet" href="scenario_builder.css">
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>🏘️ LEC Scenario Builder</h1>
+            <p>Configure and generate realistic Local Energy Community scenarios</p>
+        </header>
+
+        <div class="main-content">
+            <!-- Template Selection -->
+            <section class="card">
+                <h2>1. Choose Template</h2>
+                <div class="template-grid" id="templateGrid">
+                    <!-- Templates loaded dynamically -->
+                </div>
+                <button onclick="loadCustom()" class="btn-secondary">Create Custom Scenario</button>
+            </section>
+
+            <!-- Configuration Panel -->
+            <section class="card" id="configPanel" style="display: none;">
+                <h2>2. Configure Scenario</h2>
+
+                <div class="form-grid">
+                    <div class="form-group">
+                        <label>Scenario Name</label>
+                        <input type="text" id="scenarioName" placeholder="My Custom Scenario">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Total Nodes: <span id="nodeCountValue">10</span></label>
+                        <input type="range" id="nodeCount" min="5" max="100" value="10" oninput="updateNodeCount()">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Node Type Distribution</label>
+                        <div class="node-types">
+                            <div>
+                                <label>Residential: <span id="residentialValue">50</span>%</label>
+                                <input type="range" id="residentialSlider" min="0" max="100" value="50"
+                                    oninput="updateNodeTypes()">
+                            </div>
+                            <div>
+                                <label>Commercial: <span id="commercialValue">30</span>%</label>
+                                <input type="range" id="commercialSlider" min="0" max="100" value="30"
+                                    oninput="updateNodeTypes()">
+                            </div>
+                            <div>
+                                <label>Industrial: <span id="industrialValue">20</span>%</label>
+                                <input type="range" id="industrialSlider" min="0" max="100" value="20"
+                                    oninput="updateNodeTypes()">
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group">
+                        <label>PV Penetration: <span id="pvPenValue">60</span>%</label>
+                        <input type="range" id="pvPenetration" min="0" max="100" value="60" oninput="updateSliders()">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Battery Penetration: <span id="battPenValue">40</span>%</label>
+                        <input type="range" id="batteryPenetration" min="0" max="100" value="40"
+                            oninput="updateSliders()">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Simulation Start</label>
+                        <input type="datetime-local" id="startTime" value="2024-06-01T00:00">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Simulation End</label>
+                        <input type="datetime-local" id="endTime" value="2024-06-07T23:00">
+                    </div>
+
+                    <div class="form-group">
+                        <label>Time Step (minutes)</label>
+                        <select id="timeStep">
+                            <option value="15">15 minutes</option>
+                            <option value="30">30 minutes</option>
+                            <option value="60" selected>1 hour</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Market Model</label>
+                        <select id="marketModel">
+                            <option value="P2PNashBargaining">P2P Nash Bargaining</option>
+                            <option value="CommunitySelfConsumption">Community Self-Consumption</option>
+                            <option value="SDRPricing">SDR Pricing</option>
+                            <option value="PayAsClear">Pay-as-Clear</option>
+                        </select>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Cooperative Fraction: <span id="coopValue">80</span>%</label>
+                        <input type="range" id="cooperativeFraction" min="0" max="100" value="80"
+                            oninput="updateSliders()">
+                    </div>
+                </div>
+
+                <div class="button-group">
+                    <button onclick="generateScenario()" class="btn-primary">Generate Scenario</button>
+                    <button onclick="resetForm()" class="btn-secondary">Reset</button>
+                </div>
+            </section>
+
+            <!-- Status Section -->
+            <section class="card" id="statusSection" style="display: none;">
+                <h2>3. Status</h2>
+                <div id="statusMessage" class="status-message"></div>
+                <div id="progressBar" class="progress-bar" style="display: none;">
+                    <div class="progress-fill"></div>
+                </div>
+            </section>
+        </div>
+    </div>
+
+    <script src="scenario_builder.js"></script>
+</body>
+
+</html>
