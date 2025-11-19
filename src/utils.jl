@@ -2,6 +2,7 @@ module Utils
 
 using JSON
 using Plots
+using Statistics
 using ..Types
 
 export load_config, cleanup_images, plot_results, calculate_kpis, export_to_json

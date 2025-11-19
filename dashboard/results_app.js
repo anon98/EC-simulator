@@ -43,16 +43,28 @@ async function runSimulation() {
 
 async function loadResultsFile(scenarioId) {
     try {
-        const response = await fetch(`/scenarios/${scenarioId}/simulation_results.json`);
+        const url = `/scenarios/${scenarioId}/simulation_results.json`;
+        console.log(`Fetching results from: ${url}`);
+        const response = await fetch(url);
+
         if (response.ok) {
             const data = await response.json();
-            displayCharts(data);
-            showStatus('Results loaded successfully!', 'success');
+            console.log('Results data received:', data);
+            try {
+                displayCharts(data);
+                showStatus('Results loaded successfully!', 'success');
+            } catch (chartError) {
+                console.error('Chart rendering error:', chartError);
+                showStatus(`Chart error: ${chartError.message}`, 'error');
+            }
         } else {
-            showStatus('KPIs displayed. Charts not available.', 'success');
+            const errorText = await response.text();
+            console.error(`Fetch failed: ${response.status} ${response.statusText}`, errorText);
+            showStatus(`Failed to load results: ${response.status} ${response.statusText} - ${errorText}`, 'error');
         }
     } catch (error) {
-        showStatus('KPIs displayed. Charts not available.', 'success');
+        console.error('Network error:', error);
+        showStatus(`Network error: ${error.message}`, 'error');
     }
 }
 
@@ -75,7 +87,12 @@ function displayCharts(data) {
     const sampledSOC = data.results.battery_soc ? data.results.battery_soc.filter((_, i) => i % sampleRate === 0) : [];
 
     const ctx1 = document.getElementById('communityChart').getContext('2d');
-    if (window.communityChart) window.communityChart.destroy();
+    if (window.communityChart instanceof Chart) {
+        window.communityChart.destroy();
+    } else if (window.communityChart) {
+        // Fallback if it's not a Chart instance but exists (e.g. partial load)
+        window.communityChart = null;
+    }
 
     window.communityChart = new Chart(ctx1, {
         type: 'line',
@@ -105,7 +122,11 @@ function displayCharts(data) {
 
     if (sampledSOC.length > 0) {
         const ctx2 = document.getElementById('socChart').getContext('2d');
-        if (window.socChart) window.socChart.destroy();
+        if (window.socChart instanceof Chart) {
+            window.socChart.destroy();
+        } else if (window.socChart) {
+            window.socChart = null;
+        }
 
         window.socChart = new Chart(ctx2, {
             type: 'line',

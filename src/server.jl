@@ -27,11 +27,14 @@ using .Simulation
 export start_server, stop_server
 
 # Global state
+# Global state
 const active_scenarios = Dict{String, Any}()
 const server_ref = Ref{Union{HTTP.Server, Nothing}}(nothing)
+const PROJECT_ROOT = dirname(@__DIR__)
 
 function start_server(;port::Int=8080, host::String="127.0.0.1")
     println("Starting LEC Scenario Server on http://$host:$port")
+    println("Project Root: $PROJECT_ROOT")
     
     router = HTTP.Router()
     
@@ -42,10 +45,31 @@ function start_server(;port::Int=8080, host::String="127.0.0.1")
     HTTP.register!(router, "GET", "/api/scenarios/*", handle_get_scenario)
     HTTP.register!(router, "POST", "/api/simulation/run", handle_run_simulation)
     
-    # Static files
-    HTTP.register!(router, "GET", "/*", handle_static)
+    # Static files - Handled by middleware manual dispatch
+    # HTTP.register!(router, "GET", "/*", handle_static)
     
-    server_ref[] = HTTP.serve!(router, host, port; verbose=false)
+    # Middleware for logging and manual dispatch
+    function logger_middleware(handler)
+        return function(req)
+            println("RAW REQUEST: $(req.method) $(req.target)")
+            
+            # Check if it matches an API route first
+            # Simple heuristic: if it starts with /api, let the router handle it
+            if startswith(req.target, "/api")
+                resp = handler(req)
+                println("RESPONSE STATUS: $(resp.status)")
+                return resp
+            end
+            
+            # Otherwise, treat as static file
+            println("Manual dispatch to handle_static")
+            resp = handle_static(req)
+            println("RESPONSE STATUS: $(resp.status)")
+            return resp
+        end
+    end
+    
+    server_ref[] = HTTP.serve!(logger_middleware(router), host, port; verbose=false)
     
     println("Server started successfully!")
     println("Open http://$host:$port/scenario_builder.html in your browser")
@@ -101,7 +125,9 @@ function handle_generate_scenario(req::HTTP.Request)
         )
         
         # Generate scenario
-        output_dir = generate_scenario(scenario)
+        # Use absolute path for output
+        output_dir = joinpath(PROJECT_ROOT, "scenarios", replace(scenario.name, " " => "_"))
+        generate_scenario(scenario, output_dir=output_dir)
         
         # Store in active scenarios
         scenario_id = replace(scenario.name, " " => "_")
@@ -165,16 +191,26 @@ function handle_run_simulation(req::HTTP.Request)
         scenario_id = body["scenario_id"]
         
         # Find the scenario directory
-        scenario_dir = "scenarios/$scenario_id"
+        scenario_dir = if haskey(active_scenarios, scenario_id)
+            active_scenarios[scenario_id]["output_dir"]
+        else
+            joinpath(PROJECT_ROOT, "scenarios", scenario_id)
+        end
         
         if !isdir(scenario_dir)
-            return HTTP.Response(404, JSON.json(Dict("error" => "Scenario directory not found")))
+            # Fallback: try replacing underscores with spaces
+            scenario_dir_spaces = joinpath(PROJECT_ROOT, "scenarios", replace(scenario_id, "_" => " "))
+            if isdir(scenario_dir_spaces)
+                scenario_dir = scenario_dir_spaces
+            else
+                return HTTP.Response(404, JSON.json(Dict("error" => "Scenario directory not found: $scenario_dir")))
+            end
         end
         
         # Load the config
         config_path = joinpath(scenario_dir, "config.json")
         if !isfile(config_path)
-            return HTTP.Response(404, JSON.json(Dict("error" => "Config file not found")))
+            return HTTP.Response(404, JSON.json(Dict("error" => "Config file not found at $config_path")))
         end
         
         # Run simulation using LECSimulator
@@ -185,7 +221,7 @@ function handle_run_simulation(req::HTTP.Request)
             market_type_str = body["market_model"]
             println("Running simulation with market model: $market_type_str")
             
-            community.market_model = if market_type_str == "CommunitySelfConsumption"
+            new_market_model = if market_type_str == "CommunitySelfConsumption"
                 CommunitySelfConsumption()
             elseif market_type_str == "SDRPricing"
                 SDRPricing()
@@ -194,6 +230,8 @@ function handle_run_simulation(req::HTTP.Request)
             else
                 P2PNashBargaining()
             end
+
+            community = Community(community.nodes, new_market_model, community.cooperative_nodes)
         end
         
         println("Starting simulation for scenario: $scenario_id")
@@ -223,22 +261,76 @@ function handle_run_simulation(req::HTTP.Request)
 end
 
 function handle_static(req::HTTP.Request)
+    # Decode URL to handle spaces and special characters
+    target = HTTP.unescapeuri(req.target)
+    println("DEBUG: Incoming request for $target")
+
     # Serve static files from dashboard/ or scenarios/
-    filepath = if req.target == "/"
-        "dashboard/index.html"
-    elseif startswith(req.target, "/scenarios/")
-        # Serve scenario files
-        req.target[2:end]  # Remove leading /
+    filepath = if target == "/"
+        joinpath(PROJECT_ROOT, "dashboard", "index.html")
+    elseif startswith(target, "/scenarios/")
+        # Try to resolve scenario path
+        path_parts = split(target, "/")
+        println("DEBUG: Path parts: $path_parts")
+        
+        if length(path_parts) >= 4
+            scenario_id = path_parts[3]
+            # Use joinpath for the rest of the path to handle separators correctly
+            rest_parts = path_parts[4:end]
+            println("DEBUG: Scenario ID: $scenario_id, Rest: $rest_parts")
+            
+            # 1. Try active scenarios
+            if haskey(active_scenarios, scenario_id)
+                p = joinpath(active_scenarios[scenario_id]["output_dir"], rest_parts...)
+                println("DEBUG: Found in active_scenarios: $p")
+                p
+            # 2. Try replacing underscores with spaces in ID
+            elseif isdir(joinpath(PROJECT_ROOT, "scenarios", replace(scenario_id, "_" => " ")))
+                p = joinpath(PROJECT_ROOT, "scenarios", replace(scenario_id, "_" => " "), rest_parts...)
+                println("DEBUG: Found via underscore replacement: $p")
+                p
+            # 3. Try exact match
+            elseif isdir(joinpath(PROJECT_ROOT, "scenarios", scenario_id))
+                p = joinpath(PROJECT_ROOT, "scenarios", scenario_id, rest_parts...)
+                println("DEBUG: Found via exact match: $p")
+                p
+            else
+                # Fallback: try to find any directory that matches case-insensitive
+                found_dir = ""
+                scenarios_root = joinpath(PROJECT_ROOT, "scenarios")
+                if isdir(scenarios_root)
+                    for d in readdir(scenarios_root)
+                        if lowercase(d) == lowercase(replace(scenario_id, "_" => " ")) || lowercase(d) == lowercase(scenario_id)
+                            found_dir = d
+                            break
+                        end
+                    end
+                end
+                
+                if !isempty(found_dir)
+                    joinpath(scenarios_root, found_dir, rest_parts...)
+                else
+                    joinpath(PROJECT_ROOT, target[2:end])
+                end
+            end
+        else
+            joinpath(PROJECT_ROOT, target[2:end])
+        end
     else
-        "dashboard" * req.target
+        joinpath(PROJECT_ROOT, "dashboard", target[2:end]) # Remove leading /
     end
+    
+    println("Resolved to: $filepath")
     
     if isfile(filepath)
         content = read(filepath, String)
         content_type = get_content_type(filepath)
-        return HTTP.Response(200, [("Content-Type", content_type)], content)
+        return HTTP.Response(200, [("Content-Type", content_type), ("Cache-Control", "no-store")], content)
     else
-        return HTTP.Response(404, "File not found: $filepath")
+        # Debug info for 404
+        parent_dir = dirname(filepath)
+        dir_contents = isdir(parent_dir) ? readdir(parent_dir) : "Directory not found"
+        return HTTP.Response(404, "File not found: $filepath (Exists: $(isfile(filepath)), Parent: $parent_dir, Contents: $dir_contents)")
     end
 end
 

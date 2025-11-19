@@ -31,7 +31,7 @@ end
 
 # 1. P2P Nash Bargaining
 function solve_market(model::P2PNashBargaining, community::Community, grid_price::Float64, dt::Float64)
-    println("  [P2P Nash Bargaining] Optimizing market...")
+    # println("  [P2P Nash Bargaining] Optimizing market...")
     
     coop_indices = community.cooperative_nodes
     transactions = zeros(length(community.nodes))
@@ -67,14 +67,14 @@ function solve_market(model::P2PNashBargaining, community::Community, grid_price
         end
     end
     
-    println("    Trades: $trade_count | Profit: €$(round(total_cooperative_profit, digits=2))")
+    # println("    Trades: $trade_count | Profit: €$(round(total_cooperative_profit, digits=2))")
 
     return transactions, transaction_matrix, total_cooperative_profit
 end
 
 # 2. Community Self-Consumption (Pro-rata)
 function solve_market(model::CommunitySelfConsumption, community::Community, grid_price::Float64, dt::Float64)
-    println("  [Community Self-Consumption] Optimizing market...")
+    # println("  [Community Self-Consumption] Optimizing market...")
     
     coop_indices = community.cooperative_nodes
     transactions = zeros(length(community.nodes))
@@ -112,14 +112,14 @@ function solve_market(model::CommunitySelfConsumption, community::Community, gri
     # In this model, we assume a unified community bill or internal price = 0 (virtual sharing)
     total_cooperative_profit = sum((transactions[i] for i in coop_indices if transactions[i] > 0), init=0.0) * grid_price * dt
     
-    println("    Shared energy: $(round(min(total_excess, total_deficit), digits=2)) kW | Profit: €$(round(total_cooperative_profit, digits=2))")
+    # println("    Shared energy: $(round(min(total_excess, total_deficit), digits=2)) kW | Profit: €$(round(total_cooperative_profit, digits=2))")
     
     return transactions, transaction_matrix, total_cooperative_profit
 end
 
 # 3. SDR Pricing (Supply/Demand Ratio)
 function solve_market(model::SDRPricing, community::Community, grid_price::Float64, dt::Float64)
-    println("  [SDR Pricing] Optimizing market...")
+    # println("  [SDR Pricing] Optimizing market...")
     
     coop_indices = community.cooperative_nodes
     transactions = zeros(length(community.nodes))
@@ -147,7 +147,7 @@ function solve_market(model::SDRPricing, community::Community, grid_price::Float
         end
     end
     
-    println("    SDR: $(round(total_excess/max(total_deficit,1e-6), digits=2)) | Price: €$(round(internal_price, digits=3))/kWh")
+    # println("    SDR: $(round(total_excess/max(total_deficit,1e-6), digits=2)) | Price: €$(round(internal_price, digits=3))/kWh")
     
     # Match energy (Pro-rata like Community Self-Consumption but with explicit price)
     shared_energy = min(total_excess, total_deficit)
@@ -182,7 +182,7 @@ end
 
 # 4. Pay-as-Clear (Double Auction)
 function solve_market(model::PayAsClear, community::Community, grid_price::Float64, dt::Float64)
-    println("  [Pay-as-Clear] Optimizing market...")
+    # println("  [Pay-as-Clear] Optimizing market...")
     
     # Simplified Double Auction
     # Bids: Buyers bid grid_price (willing to pay up to grid)
@@ -209,7 +209,7 @@ function solve_market(model::PayAsClear, community::Community, grid_price::Float
         clearing_price = (grid_price + feed_in_tariff) / 2
     end
     
-    println("    Clearing price: €$(round(clearing_price, digits=3))/kWh")
+    # println("    Clearing price: €$(round(clearing_price, digits=3))/kWh")
     
     # Match energy
     transactions = zeros(length(community.nodes))
