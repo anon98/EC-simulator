@@ -4,241 +4,366 @@ using ..Types
 
 export solve_market
 
-# --- Helper Functions ---
+# === Global economic assumptions ============================================
+# Units:
+#   - net_power: kW  (positive = surplus, negative = deficit)
+#   - dt: hours
+#   - prices: €/kWh
+#   - energy traded in each step: kWh = kW * dt
+#
+# Economic baseline:
+#   - Surplus agents (producers) can always export to the grid at FEED_IN_TARIFF.
+#   - Deficit agents (consumers) can always import from the grid at grid_price.
+#   - "Cooperative profit" is the *additional* surplus of the community
+#     compared to everyone separately interacting with the grid:
+#         ΔW = shared_energy * (grid_price - FEED_IN_TARIFF) * dt
 
-function negotiate_price(excess_power, deficit_power, grid_price)
-    # Nash Bargaining Solution
+const FEED_IN_TARIFF = 0.05  # €/kWh, placeholder; better: take from model or community
+
+
+# --- Helper Functions --------------------------------------------------------
+
+"""
+    negotiate_price(excess_power, deficit_power, grid_price;
+                    feed_in_tariff = FEED_IN_TARIFF)
+
+Compute a Nash-bargaining-style internal trading price between a surplus side
+and a deficit side.
+
+Assumptions per unit of energy:
+  - Seller fallback: feed_in_tariff  (export to grid)
+  - Buyer fallback:  grid_price      (import from grid)
+  - Seller utility per unit:  u_s(p) = p - feed_in_tariff
+  - Buyer utility per unit:   u_b(p) = grid_price - p
+
+With asymmetric bargaining power α ∈ [0,1] (buyer weight), the Nash product is
+    [u_s(p)]^(1-α) * [u_b(p)]^α
+Maximization yields the closed-form solution
+    p* = α * grid_price + (1 - α) * feed_in_tariff
+
+Here we choose α proportional to the *relative demand*:
+    α = deficit_power / (excess_power + deficit_power)
+so that the side with the larger volume gets more bargaining power.
+
+If both sides are zero, the function returns the mid-price between grid and feed-in.
+"""
+function negotiate_price(excess_power::Float64,
+                         deficit_power::Float64,
+                         grid_price::Float64;
+                         feed_in_tariff::Float64 = FEED_IN_TARIFF)
+
     total_power = excess_power + deficit_power
-    if total_power == 0
-        return grid_price / 2
-    else
-        surplus_ratio = excess_power / total_power
-        deficit_ratio = deficit_power / total_power
-        
-        # Weighted price based on surplus and deficit ratios
-        negotiated_price = grid_price * surplus_ratio + (grid_price / 2) * deficit_ratio
-        return negotiated_price
+
+    if total_power <= 0
+        # Degenerate case: no meaningful trade volume -> arbitrary but bounded
+        return 0.5 * (grid_price + feed_in_tariff)
     end
+
+    # Buyer bargaining weight α based on relative demand volume
+    α = deficit_power / total_power
+    α = clamp(α, 0.0, 1.0)
+
+    # Nash bargaining solution with asymmetric bargaining power
+    negotiated_price = α * grid_price + (1 - α) * feed_in_tariff
+    return negotiated_price
 end
 
-# --- Market Solver Interface ---
+
+# --- Market Solver Interface -------------------------------------------------
 
 function solve_market(community::Community, grid_price::Float64, dt::Float64)
     return solve_market(community.market_model, community, grid_price, dt)
 end
 
-# --- Concrete Implementations ---
 
-# 1. P2P Nash Bargaining
-function solve_market(model::P2PNashBargaining, community::Community, grid_price::Float64, dt::Float64)
-    # println("  [P2P Nash Bargaining] Optimizing market...")
-    
-    coop_indices = community.cooperative_nodes
-    transactions = zeros(length(community.nodes))
-    transaction_matrix = zeros(length(community.nodes), length(community.nodes))
-    total_cooperative_profit = 0.0
+# === 1. P2P Nash Bargaining =================================================
 
+"""
+    solve_market(model::P2PNashBargaining, community, grid_price, dt)
+
+Bilateral matching among cooperative nodes using a simple greedy algorithm:
+  - Sellers: nodes with net_power > 0
+  - Buyers:  nodes with net_power < 0
+For each seller–buyer pair, we trade up to the minimum of their remaining
+surplus/deficit at a Nash-bargained price.
+
+Transactions are recorded in:
+  - `transactions[i]` (kW): net P2P power for node i
+      (negative = net seller, positive = net buyer)
+  - `transaction_matrix[i,j]` (kW): power from i (seller) to j (buyer)
+
+Total cooperative profit is measured relative to the reference of everyone
+trading with the external grid:
+  ΔW = shared_energy * (grid_price - FEED_IN_TARIFF) * dt
+"""
+function solve_market(model::P2PNashBargaining,
+                      community::Community,
+                      grid_price::Float64,
+                      dt::Float64)
+
+    coop_indices        = community.cooperative_nodes
+    n                   = length(community.nodes)
+    transactions        = zeros(Float64, n)
+    transaction_matrix  = zeros(Float64, n, n)
+
+    # Remaining net power in kW
     remaining_net_power = [node.net_power for node in community.nodes]
 
-    trade_count = 0
     for seller_idx in coop_indices
         if remaining_net_power[seller_idx] > 0
             for buyer_idx in coop_indices
                 if remaining_net_power[buyer_idx] < 0
-                    
-                    amount = min(remaining_net_power[seller_idx], -remaining_net_power[buyer_idx])
-                    
-                    if amount > 1e-6
-                        price = negotiate_price(remaining_net_power[seller_idx], -remaining_net_power[buyer_idx], grid_price)
-                        
-                        transaction_profit = amount * (grid_price - price) * dt
-                        total_cooperative_profit += transaction_profit
 
+                    excess  = remaining_net_power[seller_idx]
+                    deficit = -remaining_net_power[buyer_idx]
+                    amount  = min(excess, deficit)  # kW
+
+                    if amount > 1e-9
+                        price = negotiate_price(
+                            excess, deficit, grid_price;
+                            feed_in_tariff = FEED_IN_TARIFF
+                        )
+
+                        # Update remaining powers (kW)
                         remaining_net_power[seller_idx] -= amount
-                        remaining_net_power[buyer_idx] += amount
-                        
-                        transactions[seller_idx] -= amount
-                        transactions[buyer_idx] += amount
+                        remaining_net_power[buyer_idx]  += amount
+
+                        # Bookkeeping in kW (instantaneous power)
+                        transactions[seller_idx]      -= amount
+                        transactions[buyer_idx]       += amount
                         transaction_matrix[seller_idx, buyer_idx] += amount
-                        trade_count += 1
                     end
                 end
             end
         end
     end
-    
-    # println("    Trades: $trade_count | Profit: €$(round(total_cooperative_profit, digits=2))")
+
+    # Total community energy traded internally (kW -> kWh via dt)
+    shared_power   = sum(max(0.0, transactions[i]) for i in coop_indices)
+    shared_energy  = shared_power * dt  # kWh
+
+    total_cooperative_profit =
+        shared_energy * (grid_price - FEED_IN_TARIFF)
 
     return transactions, transaction_matrix, total_cooperative_profit
 end
 
-# 2. Community Self-Consumption (Pro-rata)
-function solve_market(model::CommunitySelfConsumption, community::Community, grid_price::Float64, dt::Float64)
-    # println("  [Community Self-Consumption] Optimizing market...")
-    
-    coop_indices = community.cooperative_nodes
-    transactions = zeros(length(community.nodes))
-    transaction_matrix = zeros(length(community.nodes), length(community.nodes))
-    
-    total_excess = sum(max(0, community.nodes[i].net_power) for i in coop_indices)
-    total_deficit = sum(max(0, -community.nodes[i].net_power) for i in coop_indices)
-    
-    if total_excess > 0 && total_deficit > 0
-        # Distribute excess proportionally to deficit
-        shared_energy = min(total_excess, total_deficit)
-        
+
+# === 2. Community Self-Consumption (Pro-rata) ===============================
+
+"""
+    solve_market(model::CommunitySelfConsumption, community, grid_price, dt)
+
+Virtual sharing with a single community pool:
+  - Total cooperative surplus = min(total_excess, total_deficit)
+  - Surpluses are pooled and allocated pro-rata to deficits.
+  - Internal transfer price is purely virtual (no explicit €-flows).
+
+Cooperative profit is defined as the avoided external exchanges with the grid:
+  ΔW = shared_energy * (grid_price - FEED_IN_TARIFF) * dt
+"""
+function solve_market(model::CommunitySelfConsumption,
+                      community::Community,
+                      grid_price::Float64,
+                      dt::Float64)
+
+    coop_indices       = community.cooperative_nodes
+    n                  = length(community.nodes)
+    transactions       = zeros(Float64, n)
+    transaction_matrix = zeros(Float64, n, n)
+
+    total_excess  = sum(max(0.0, community.nodes[i].net_power)  for i in coop_indices)
+    total_deficit = sum(max(0.0, -community.nodes[i].net_power) for i in coop_indices)
+
+    shared_power = min(total_excess, total_deficit)
+
+    if shared_power > 1e-9
         for seller_idx in coop_indices
-            if community.nodes[seller_idx].net_power > 0
-                share_contribution = community.nodes[seller_idx].net_power / total_excess
-                sold_amount = share_contribution * shared_energy
-                
+            p_seller = community.nodes[seller_idx].net_power
+            if p_seller > 0
+                share_contribution = p_seller / total_excess
+                sold_amount        = share_contribution * shared_power  # kW
+
                 transactions[seller_idx] -= sold_amount
-                
-                # Distribute this sold amount to buyers
+
+                # Distribute this sold amount to buyers pro-rata to their deficits
                 for buyer_idx in coop_indices
-                    if community.nodes[buyer_idx].net_power < 0
-                        share_consumption = -community.nodes[buyer_idx].net_power / total_deficit
-                        bought_amount = sold_amount * share_consumption
-                        
-                        transactions[buyer_idx] += bought_amount
+                    p_buyer = community.nodes[buyer_idx].net_power
+                    if p_buyer < 0
+                        share_consumption = -p_buyer / total_deficit
+                        bought_amount     = sold_amount * share_consumption
+
+                        transactions[buyer_idx]       += bought_amount
                         transaction_matrix[seller_idx, buyer_idx] += bought_amount
                     end
                 end
             end
         end
     end
-    
-    # Profit is simply the shared energy * grid price (savings)
-    # In this model, we assume a unified community bill or internal price = 0 (virtual sharing)
-    total_cooperative_profit = sum((transactions[i] for i in coop_indices if transactions[i] > 0), init=0.0) * grid_price * dt
-    
-    # println("    Shared energy: $(round(min(total_excess, total_deficit), digits=2)) kW | Profit: €$(round(total_cooperative_profit, digits=2))")
-    
+
+    shared_energy = shared_power * dt  # kWh
+
+    # Community surplus vs. everyone trading with grid independently
+    total_cooperative_profit =
+        shared_energy * (grid_price - FEED_IN_TARIFF)
+
     return transactions, transaction_matrix, total_cooperative_profit
 end
 
-# 3. SDR Pricing (Supply/Demand Ratio)
-function solve_market(model::SDRPricing, community::Community, grid_price::Float64, dt::Float64)
-    # println("  [SDR Pricing] Optimizing market...")
-    
-    coop_indices = community.cooperative_nodes
-    transactions = zeros(length(community.nodes))
-    transaction_matrix = zeros(length(community.nodes), length(community.nodes))
-    
-    total_excess = sum(max(0, community.nodes[i].net_power) for i in coop_indices)
-    total_deficit = sum(max(0, -community.nodes[i].net_power) for i in coop_indices)
-    
-    # Calculate SDR Price
-    # Heuristic: Price varies linearly between Feed-in Tariff (assumed 0.05) and Grid Price
-    feed_in_tariff = 0.05
-    
-    if total_deficit == 0
-        internal_price = feed_in_tariff
-    elseif total_excess == 0
-        internal_price = grid_price
+
+# === 3. SDR Pricing (Supply/Demand Ratio) ===================================
+
+"""
+    solve_market(model::SDRPricing, community, grid_price, dt)
+
+SDR-based internal price:
+  - total_supply = total_excess ≥ 0
+  - total_demand = total_deficit ≥ 0
+  - λ = total_demand / (total_supply + total_demand) ∈ [0,1]
+  - internal_price = FEED_IN_TARIFF + λ * (grid_price - FEED_IN_TARIFF)
+
+Thus:
+  - If demand ≪ supply, λ ≈ 0 ⇒ price ≈ FEED_IN_TARIFF.
+  - If demand ≫ supply, λ ≈ 1 ⇒ price ≈ grid_price.
+
+Matching of energy is as in CommunitySelfConsumption (pro-rata).
+Total community surplus is again measured relative to FEED_IN_TARIFF / grid.
+"""
+function solve_market(model::SDRPricing,
+                      community::Community,
+                      grid_price::Float64,
+                      dt::Float64)
+
+    coop_indices       = community.cooperative_nodes
+    n                  = length(community.nodes)
+    transactions       = zeros(Float64, n)
+    transaction_matrix = zeros(Float64, n, n)
+
+    total_excess  = sum(max(0.0, community.nodes[i].net_power)  for i in coop_indices)
+    total_deficit = sum(max(0.0, -community.nodes[i].net_power) for i in coop_indices)
+
+    total_volume = total_excess + total_deficit
+
+    internal_price::Float64
+    if total_volume <= 1e-9
+        # No internal trade; price is irrelevant but keep it bounded
+        internal_price = 0.5 * (grid_price + FEED_IN_TARIFF)
     else
-        sdr = total_excess / total_deficit
-        # If excess >= deficit, price drops towards feed-in
-        # If excess < deficit, price rises towards grid price
-        if sdr >= 1.0
-            internal_price = feed_in_tariff + (grid_price - feed_in_tariff) * exp(-(sdr-1)) # Decay
-        else
-            internal_price = grid_price - (grid_price - feed_in_tariff) * sdr
-        end
+        λ = total_deficit / total_volume  # demand share ∈ [0,1]
+        internal_price = FEED_IN_TARIFF + λ * (grid_price - FEED_IN_TARIFF)
     end
-    
-    # println("    SDR: $(round(total_excess/max(total_deficit,1e-6), digits=2)) | Price: €$(round(internal_price, digits=3))/kWh")
-    
-    # Match energy (Pro-rata like Community Self-Consumption but with explicit price)
-    shared_energy = min(total_excess, total_deficit)
-    
-    if shared_energy > 0
+
+    # Pro-rata matching identical to CommunitySelfConsumption
+    shared_power = min(total_excess, total_deficit)
+
+    if shared_power > 1e-9
         for seller_idx in coop_indices
-            if community.nodes[seller_idx].net_power > 0
-                share_contribution = community.nodes[seller_idx].net_power / total_excess
-                sold_amount = share_contribution * shared_energy
+            p_seller = community.nodes[seller_idx].net_power
+            if p_seller > 0
+                share_contribution = p_seller / total_excess
+                sold_amount        = share_contribution * shared_power
+
                 transactions[seller_idx] -= sold_amount
-                
+
                 for buyer_idx in coop_indices
-                    if community.nodes[buyer_idx].net_power < 0
-                        share_consumption = -community.nodes[buyer_idx].net_power / total_deficit
-                        bought_amount = sold_amount * share_consumption
-                        transactions[buyer_idx] += bought_amount
+                    p_buyer = community.nodes[buyer_idx].net_power
+                    if p_buyer < 0
+                        share_consumption = -p_buyer / total_deficit
+                        bought_amount     = sold_amount * share_consumption
+
+                        transactions[buyer_idx]       += bought_amount
                         transaction_matrix[seller_idx, buyer_idx] += bought_amount
                     end
                 end
             end
         end
     end
-    
-    # Profit calculation
-    # Sellers gain: sold_amount * (internal_price - feed_in_tariff)
-    # Buyers gain: bought_amount * (grid_price - internal_price)
-    # Total community gain = shared_energy * (grid_price - feed_in_tariff)
-    total_cooperative_profit = shared_energy * (grid_price - feed_in_tariff) * dt
-    
+
+    shared_energy = shared_power * dt  # kWh
+
+    # Note: with the assumed baseline, *total* community surplus does NOT
+    # depend on the internal_price, only on the traded volume.
+    total_cooperative_profit =
+        shared_energy * (grid_price - FEED_IN_TARIFF)
+
     return transactions, transaction_matrix, total_cooperative_profit
 end
 
-# 4. Pay-as-Clear (Double Auction)
-function solve_market(model::PayAsClear, community::Community, grid_price::Float64, dt::Float64)
-    # println("  [Pay-as-Clear] Optimizing market...")
-    
-    # Simplified Double Auction
-    # Bids: Buyers bid grid_price (willing to pay up to grid)
-    # Offers: Sellers offer feed_in_tariff (willing to sell down to feed-in)
-    # Clearing price is the intersection.
-    
-    # In this simplified setup with homogeneous preferences, the clearing price 
-    # is usually determined by the marginal unit.
-    # If Demand > Supply -> Price = Grid Price
-    # If Supply > Demand -> Price = Feed-in Tariff
-    # If Supply == Demand -> Price = (Grid + Feed-in) / 2
-    
-    feed_in_tariff = 0.05
-    
-    coop_indices = community.cooperative_nodes
-    total_excess = sum(max(0, community.nodes[i].net_power) for i in coop_indices)
-    total_deficit = sum(max(0, -community.nodes[i].net_power) for i in coop_indices)
-    
+
+# === 4. Pay-as-Clear (Double Auction) =======================================
+
+"""
+    solve_market(model::PayAsClear, community, grid_price, dt)
+
+Stylized uniform-price double auction:
+
+  - Buyers bid up to grid_price.
+  - Sellers are willing to accept down to FEED_IN_TARIFF.
+  - With homogeneous valuations, any price in [FEED_IN_TARIFF, grid_price]
+    implements the same allocative outcome (same traded quantity).
+
+Here we use a simple rule:
+  - If total_excess > total_deficit: price = FEED_IN_TARIFF (supply abundant)
+  - If total_deficit > total_excess: price = grid_price   (demand tight)
+  - If equal:                         mid-price
+
+Matching is again pro-rata. Total community surplus is computed relative to
+the grid baseline and equals shared_energy * (grid_price - FEED_IN_TARIFF) * dt.
+"""
+function solve_market(model::PayAsClear,
+                      community::Community,
+                      grid_price::Float64,
+                      dt::Float64)
+
+    coop_indices  = community.cooperative_nodes
+    n             = length(community.nodes)
+
+    total_excess  = sum(max(0.0, community.nodes[i].net_power)  for i in coop_indices)
+    total_deficit = sum(max(0.0, -community.nodes[i].net_power) for i in coop_indices)
+
+    clearing_price::Float64
     if total_excess > total_deficit
-        clearing_price = feed_in_tariff
+        clearing_price = FEED_IN_TARIFF
     elseif total_deficit > total_excess
         clearing_price = grid_price
     else
-        clearing_price = (grid_price + feed_in_tariff) / 2
+        clearing_price = 0.5 * (grid_price + FEED_IN_TARIFF)
     end
-    
-    # println("    Clearing price: €$(round(clearing_price, digits=3))/kWh")
-    
-    # Match energy
-    transactions = zeros(length(community.nodes))
-    transaction_matrix = zeros(length(community.nodes), length(community.nodes))
-    
-    shared_energy = min(total_excess, total_deficit)
-    
-    if shared_energy > 0
-        # Pro-rata matching for simplicity in this implementation
+
+    # Pro-rata matching
+    transactions       = zeros(Float64, n)
+    transaction_matrix = zeros(Float64, n, n)
+
+    shared_power = min(total_excess, total_deficit)
+
+    if shared_power > 1e-9
         for seller_idx in coop_indices
-            if community.nodes[seller_idx].net_power > 0
-                share_contribution = community.nodes[seller_idx].net_power / total_excess
-                sold_amount = share_contribution * shared_energy
+            p_seller = community.nodes[seller_idx].net_power
+            if p_seller > 0
+                share_contribution = p_seller / total_excess
+                sold_amount        = share_contribution * shared_power
+
                 transactions[seller_idx] -= sold_amount
-                
+
                 for buyer_idx in coop_indices
-                    if community.nodes[buyer_idx].net_power < 0
-                        share_consumption = -community.nodes[buyer_idx].net_power / total_deficit
-                        bought_amount = sold_amount * share_consumption
-                        transactions[buyer_idx] += bought_amount
+                    p_buyer = community.nodes[buyer_idx].net_power
+                    if p_buyer < 0
+                        share_consumption = -p_buyer / total_deficit
+                        bought_amount     = sold_amount * share_consumption
+
+                        transactions[buyer_idx]       += bought_amount
                         transaction_matrix[seller_idx, buyer_idx] += bought_amount
                     end
                 end
             end
         end
     end
-    
-    total_cooperative_profit = shared_energy * (grid_price - feed_in_tariff) * dt
-    
+
+    shared_energy = shared_power * dt  # kWh
+
+    total_cooperative_profit =
+        shared_energy * (grid_price - FEED_IN_TARIFF)
+
     return transactions, transaction_matrix, total_cooperative_profit
 end
 

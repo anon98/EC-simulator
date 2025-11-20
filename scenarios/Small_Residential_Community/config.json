@@ -1,0 +1,26 @@
+{
+    "grid_parameters": {
+        "pv_nodes": [
+            5
+        ],
+        "cooperative_nodes": [
+            1,
+            2,
+            3,
+            5,
+            7,
+            8
+        ],
+        "num_nodes": 8,
+        "market_model": "P2PNashBargaining",
+        "battery_nodes": [
+            2,
+            3,
+            6
+        ]
+    },
+    "simulation_parameters": {
+        "simulation_hours": 167.0,
+        "dt": 1.0
+    }
+}

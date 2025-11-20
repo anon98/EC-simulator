@@ -42,6 +42,7 @@ function start_server(;port::Int=8080, host::String="127.0.0.1")
     HTTP.register!(router, "GET", "/api/templates", handle_get_templates)
     HTTP.register!(router, "POST", "/api/scenarios/generate", handle_generate_scenario)
     HTTP.register!(router, "GET", "/api/scenarios", handle_list_scenarios)
+    HTTP.register!(router, "GET", "/api/scenarios/*/nodes/*", handle_get_node_data)
     HTTP.register!(router, "GET", "/api/scenarios/*", handle_get_scenario)
     HTTP.register!(router, "POST", "/api/simulation/run", handle_run_simulation)
     
@@ -183,6 +184,71 @@ function handle_get_scenario(req::HTTP.Request)
     end
     
     return HTTP.Response(404, JSON.json(Dict("error" => "Scenario not found")))
+end
+
+function handle_get_node_data(req::HTTP.Request)
+    # Extract scenario ID and node ID from path
+    path_parts = split(req.target, "/")
+    # Expected: /api/scenarios/{scenario_id}/nodes/{node_id}
+    if length(path_parts) >= 6
+        scenario_id = path_parts[4]
+        node_id_str = path_parts[6]
+        
+        scenario_dir = if haskey(active_scenarios, scenario_id)
+            active_scenarios[scenario_id]["output_dir"]
+        else
+            joinpath(PROJECT_ROOT, "scenarios", scenario_id)
+        end
+        
+        if !isdir(scenario_dir)
+            # Fallback
+            scenario_dir = joinpath(PROJECT_ROOT, "scenarios", replace(scenario_id, "_" => " "))
+            if !isdir(scenario_dir)
+                return HTTP.Response(404, JSON.json(Dict("error" => "Scenario not found")))
+            end
+        end
+        
+        # Load data files
+        data_dir = joinpath(scenario_dir, "data")
+        load_file = joinpath(data_dir, "load_node_$node_id_str.csv")
+        solar_file = joinpath(data_dir, "solar_node_$node_id_str.csv")
+        
+        if !isfile(load_file)
+            return HTTP.Response(404, JSON.json(Dict("error" => "Node data not found")))
+        end
+        
+        # Read CSVs (simple parsing)
+        load_data = []
+        solar_data = []
+        
+        # Helper to read value column from CSV
+        function read_csv_values(filepath)
+            lines = readlines(filepath)
+            # Skip header
+            return [parse(Float64, split(line, ",")[2]) for line in lines[2:end]]
+        end
+        
+        try
+            load_vals = read_csv_values(load_file)
+            solar_vals = isfile(solar_file) ? read_csv_values(solar_file) : zeros(length(load_vals))
+            
+            # Create simple timestamp array (0 to 24h)
+            timestamps = collect(0:length(load_vals)-1) ./ (length(load_vals)/24)
+            
+            response = Dict(
+                "node_id" => node_id_str,
+                "timestamps" => timestamps,
+                "load" => load_vals,
+                "solar" => solar_vals
+            )
+            
+            return HTTP.Response(200, JSON.json(response))
+        catch e
+            return HTTP.Response(500, JSON.json(Dict("error" => "Error reading data: $e")))
+        end
+    end
+    
+    return HTTP.Response(400, JSON.json(Dict("error" => "Invalid request format")))
 end
 
 function handle_run_simulation(req::HTTP.Request)

@@ -31,42 +31,7 @@
 
                 <button onclick="runSimulation()"
                     style="background: #10b981; color: white; padding: 8px 16px; border: none; border-radius: 5px; cursor: pointer; margin-right: 10px;">▶
-                    Run Simulation</button>
-
-                <button onclick="loadData()"
-                    style="background: #3b82f6; color: white; padding: 8px 16px; border: none; border-radius: 5px; cursor: pointer;">Load
-                    Benchmark</button>
             </div>
-            <div id="statusBar" style="margin-top: 10px; padding: 10px; border-radius: 5px; display: none;"></div>
-        </header>
-
-        <div class="kpi-grid">
-            <div class="kpi-card">
-                <h3>Self-Sufficiency Ratio</h3>
-                <div class="value" id="ssrValue">--</div>
-            </div>
-            <div class="kpi-card">
-                <h3>Self-Consumption Ratio</h3>
-                <div class="value" id="scrValue">--</div>
-            </div>
-            <div class="kpi-card">
-                <h3>Total Profit</h3>
-                <div class="value" id="profitValue">--</div>
-            </div>
-            <div class="kpi-card">
-                <h3>Grid Import</h3>
-                <div class="value" id="importValue">--</div>
-            </div>
-        </div>
-
-        <div class="charts-grid">
-            <div class="chart-container">
-                <canvas id="communityChart"></canvas>
-            </div>
-            <div class="chart-container">
-                <canvas id="socChart"></canvas>
-            </div>
-        </div>
     </div>
     <script src="results_app.js"></script>
 </body>

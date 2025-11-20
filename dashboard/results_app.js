@@ -68,11 +68,26 @@ async function loadResultsFile(scenarioId) {
     }
 }
 
-function displayKPIs(kpis) {
-    document.getElementById('ssrValue').textContent = kpis.SSR ? kpis.SSR.toFixed(3) : '--';
-    document.getElementById('scrValue').textContent = kpis.SCR ? kpis.SCR.toFixed(3) : '--';
-    document.getElementById('profitValue').textContent = kpis['Total Profit'] ? `€${kpis['Total Profit'].toFixed(2)}` : '--';
-    document.getElementById('importValue').textContent = kpis['Grid Import (kWh)'] ? `${kpis['Grid Import (kWh)'].toFixed(1)} kWh` : '--';
+function displayKPIs(data) {
+    const kpis = data; // data IS the kpis object in the new structure
+
+    // Helper to safely set text content
+    const setText = (id, value) => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = value;
+    };
+
+    // Helper formatters
+    const fmtCurrency = (val) => val !== undefined ? `€${val.toFixed(2)}` : '--';
+    const fmtNum = (val) => val !== undefined ? val.toFixed(1) : '--';
+
+    setText('kpi-profit', fmtCurrency(kpis.cooperative_profit));
+    setText('kpi-traded', fmtNum(kpis.total_energy_traded));
+    setText('kpi-price', fmtCurrency(kpis.average_price));
+
+    setText('kpi-gen', fmtNum(kpis.total_generation));
+    setText('kpi-load', fmtNum(kpis.total_load));
+    setText('kpi-export', fmtNum(kpis.total_export));
 }
 
 function displayCharts(data) {
@@ -90,7 +105,6 @@ function displayCharts(data) {
     if (window.communityChart instanceof Chart) {
         window.communityChart.destroy();
     } else if (window.communityChart) {
-        // Fallback if it's not a Chart instance but exists (e.g. partial load)
         window.communityChart = null;
     }
 
@@ -150,20 +164,10 @@ function displayCharts(data) {
     }
 }
 
-function loadData() {
-    const model = document.getElementById('marketModelSelect').value;
-    fetch(`data_${model}.json`)
-        .then(r => r.json())
-        .then(data => {
-            displayKPIs(data.kpis);
-            displayCharts(data);
-            showStatus(`Loaded ${model}`, 'success');
-        })
-        .catch(() => showStatus('No benchmark data', 'error'));
-}
-
 function showStatus(message, type) {
     const bar = document.getElementById('statusBar');
+    if (!bar) return;
+
     bar.textContent = message;
     bar.style.display = 'block';
 
@@ -173,7 +177,7 @@ function showStatus(message, type) {
         info: { bg: '#dbeafe', color: '#1e40af', border: '#3b82f6' }
     };
 
-    const c = colors[type];
+    const c = colors[type] || colors.info;
     bar.style.background = c.bg;
     bar.style.color = c.color;
     bar.style.border = `2px solid ${c.border}`;

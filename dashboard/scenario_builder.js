@@ -1,4 +1,5 @@
 let currentTemplate = null;
+let currentScenarioId = null;
 
 // Load templates on page load
 window.addEventListener('load', loadTemplates);
@@ -131,6 +132,7 @@ async function generateScenario() {
         progressBar.style.display = 'none';
 
         if (result.status === 'success') {
+            currentScenarioId = result.scenario_id;
             statusMessage.className = 'status-message status-success';
             statusMessage.innerHTML = `
                 <strong>Success!</strong> Scenario generated successfully.<br>
@@ -138,6 +140,25 @@ async function generateScenario() {
                 <strong>Output Directory:</strong> ${result.output_dir}<br>
                 <small>You can now run simulations with this scenario.</small>
             `;
+
+            // Setup Node Inspector
+            const nodeSelect = document.getElementById('nodeSelect');
+            if (nodeSelect) { // Check if element exists (added in HTML update)
+                nodeSelect.innerHTML = '';
+                for (let i = 1; i <= nodeCount; i++) {
+                    const option = document.createElement('option');
+                    option.value = i;
+                    option.textContent = `Node ${i}`;
+                    nodeSelect.appendChild(option);
+                }
+
+                const inspector = document.getElementById('nodeInspector');
+                if (inspector) {
+                    inspector.style.display = 'block';
+                    loadNodeData(); // Load first node
+                }
+            }
+
         } else {
             throw new Error(result.message);
         }
@@ -145,6 +166,77 @@ async function generateScenario() {
         progressBar.style.display = 'none';
         statusMessage.className = 'status-message status-error';
         statusMessage.innerHTML = `<strong>Error:</strong> ${error.message}`;
+    }
+}
+
+async function loadNodeData() {
+    if (!currentScenarioId) return;
+
+    const nodeSelect = document.getElementById('nodeSelect');
+    if (!nodeSelect) return;
+
+    const nodeId = nodeSelect.value;
+    const ctx = document.getElementById('nodeChart').getContext('2d');
+
+    try {
+        const response = await fetch(`/api/scenarios/${currentScenarioId}/nodes/${nodeId}`);
+        if (!response.ok) throw new Error('Failed to fetch node data');
+
+        const data = await response.json();
+
+        if (window.nodeChart instanceof Chart) {
+            window.nodeChart.destroy();
+        }
+
+        window.nodeChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: data.timestamps.map(t => t.toFixed(1)),
+                datasets: [
+                    {
+                        label: 'Load (kW)',
+                        data: data.load,
+                        borderColor: '#ef4444',
+                        backgroundColor: 'rgba(239, 68, 68, 0.1)',
+                        fill: true
+                    },
+                    {
+                        label: 'PV Generation (kW)',
+                        data: data.solar,
+                        borderColor: '#eab308',
+                        backgroundColor: 'rgba(234, 179, 8, 0.1)',
+                        fill: true
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                interaction: {
+                    mode: 'index',
+                    intersect: false,
+                },
+                plugins: {
+                    title: {
+                        display: true,
+                        text: `Node ${nodeId} Profiles`
+                    }
+                },
+                scales: {
+                    x: {
+                        title: { display: true, text: 'Time (hours)' }
+                    },
+                    y: {
+                        title: { display: true, text: 'Power (kW)' }
+                    }
+                }
+            }
+        });
+
+    } catch (error) {
+        console.error('Error loading node data:', error);
+        ctx.clearRect(0, 0, ctx.canvas.width, ctx.canvas.height);
+        ctx.fillText('Error loading data', 10, 50);
     }
 }
 

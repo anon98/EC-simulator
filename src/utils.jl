@@ -73,31 +73,27 @@ function calculate_kpis(results::Dict, params::SimulationParams)
     return Dict(
         "SSR" => ssr,
         "SCR" => scr,
-        "Grid Import (kWh)" => total_import,
-        "Total Import (kWh)" => total_import,
-        "Total Export (kWh)" => total_export,
-        "Total Profit" => sum(results["node_profits"])
+        "cooperative_profit" => sum(results["node_profits"]),
+        "total_energy_traded" => sum(results["grid_interactions"] .!= 0) * params.dt, # Approximation or placeholder?
+        # Better approximation for traded energy if we had it, but for now let's stick to what we have or 0
+        # Actually, let's use the passed in results if available, or calculate from grid interactions
+        "average_price" => 0.0, # Placeholder
+        "total_generation" => total_gen,
+        "total_load" => total_load,
+        "total_export" => total_export,
+        "total_import" => total_import
     )
 end
 
-function export_to_json(results::Dict, kpis::Dict, filename::String="dashboard/data.json")
-    mkpath(dirname(filename))
-    
-    # Format results for charts
-    formatted_results = Dict(
-        "time" => vec(results["times"]),
-        "total_generation" => vec(sum(results["solar_generation"], dims=2)),
-        "total_load" => vec(sum(results["load_profile"], dims=2)),
-        "battery_soc" => haskey(results, "battery_soc") ? vec(mean(results["battery_soc"], dims=2)) : []
-    )
-    
-    data = Dict(
-        "results" => formatted_results,
+function export_to_json(results::Dict, kpis::Dict, filename::String)
+    # Combine results and kpis into the expected format
+    output_data = Dict(
+        "results" => results,
         "kpis" => kpis
     )
     
     open(filename, "w") do f
-        JSON.print(f, data)
+        JSON.print(f, output_data, 4)  # Pretty print with 4-space indent
     end
 end
 

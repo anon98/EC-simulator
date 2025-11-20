@@ -6,6 +6,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>LEC Scenario Builder</title>
     <link rel="stylesheet" href="scenario_builder.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 
 <body>
@@ -13,6 +14,7 @@
         <header>
             <h1>🏘️ LEC Scenario Builder</h1>
             <p>Configure and generate realistic Local Energy Community scenarios</p>
+            <a href="index.html" class="btn secondary" style="float: right; margin-top: -40px;">Home</a>
         </header>
 
         <div class="main-content">
@@ -120,6 +122,18 @@
                 <div id="statusMessage" class="status-message"></div>
                 <div id="progressBar" class="progress-bar" style="display: none;">
                     <div class="progress-fill"></div>
+                </div>
+            </section>
+
+            <!-- Node Inspector -->
+            <section class="card" id="nodeInspector" style="display: none;">
+                <h2>4. Node Inspector</h2>
+                <div class="form-group">
+                    <label>Select Node:</label>
+                    <select id="nodeSelect" onchange="loadNodeData()"></select>
+                </div>
+                <div class="chart-container" style="height: 400px;">
+                    <canvas id="nodeChart"></canvas>
                 </div>
             </section>
         </div>
