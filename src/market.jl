@@ -244,7 +244,7 @@ function solve_market(model::SDRPricing,
 
     total_volume = total_excess + total_deficit
 
-    internal_price::Float64
+    internal_price::Float64 = 0.0
     if total_volume <= 1e-9
         # No internal trade; price is irrelevant but keep it bounded
         internal_price = 0.5 * (grid_price + FEED_IN_TARIFF)
@@ -321,7 +321,7 @@ function solve_market(model::PayAsClear,
     total_excess  = sum(max(0.0, community.nodes[i].net_power)  for i in coop_indices)
     total_deficit = sum(max(0.0, -community.nodes[i].net_power) for i in coop_indices)
 
-    clearing_price::Float64
+    clearing_price::Float64 = 0.0
     if total_excess > total_deficit
         clearing_price = FEED_IN_TARIFF
     elseif total_deficit > total_excess

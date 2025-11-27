@@ -1,4 +1,8 @@
 let currentScenarioId = null;
+let latestResultsData = null;
+let nodeSocChart = null;
+let flowChart = null;
+let batteryNodeIndices = [];
 
 async function runSimulation() {
     const scenarioId = document.getElementById('scenarioIdInput').value.trim();
@@ -68,38 +72,43 @@ async function loadResultsFile(scenarioId) {
     }
 }
 
-function displayKPIs(data) {
-    const kpis = data; // data IS the kpis object in the new structure
-
-    // Helper to safely set text content
+function displayKPIs(kpis) {
     const setText = (id, value) => {
         const el = document.getElementById(id);
         if (el) el.textContent = value;
     };
 
-    // Helper formatters
-    const fmtCurrency = (val) => val !== undefined ? `€${val.toFixed(2)}` : '--';
-    const fmtNum = (val) => val !== undefined ? val.toFixed(1) : '--';
+    const fmtCurrency = (val) => typeof val === 'number' ? `€${val.toFixed(2)}` : '--';
+    const fmtNum = (val) => typeof val === 'number' ? val.toFixed(1) : '--';
+    const fmtPct = (val) => typeof val === 'number' ? `${(val * 100).toFixed(1)}%` : '--';
 
-    setText('kpi-profit', fmtCurrency(kpis.cooperative_profit));
-    setText('kpi-traded', fmtNum(kpis.total_energy_traded));
-    setText('kpi-price', fmtCurrency(kpis.average_price));
-
-    setText('kpi-gen', fmtNum(kpis.total_generation));
-    setText('kpi-load', fmtNum(kpis.total_load));
-    setText('kpi-export', fmtNum(kpis.total_export));
+    const savings = kpis.community_savings_eur ?? kpis.cooperative_profit;
+    setText('kpi-profit', fmtCurrency(savings));
+    setText('kpi-gen', fmtNum(kpis.total_generation_kwh));
+    setText('kpi-load', fmtNum(kpis.total_load_kwh));
+    setText('kpi-import', fmtNum(kpis.grid_import_kwh ?? kpis.total_import_kwh));
+    setText('kpi-export', fmtNum(kpis.grid_export_kwh ?? kpis.total_export_kwh));
+    setText('kpi-ssr', fmtPct(kpis.ssr));
+    setText('kpi-scr', fmtPct(kpis.scr));
 }
 
 function displayCharts(data) {
     if (!data.results) return;
+    const summary = data.results;
+    latestResultsData = data;
 
-    const maxPoints = 100;
-    const sampleRate = Math.ceil(data.results.time.length / maxPoints);
+    const maxPoints = 200;
+    const sampleRate = Math.max(1, Math.ceil(summary.time.length / maxPoints));
 
-    const sampledTime = data.results.time.filter((_, i) => i % sampleRate === 0);
-    const sampledGen = data.results.total_generation.filter((_, i) => i % sampleRate === 0);
-    const sampledLoad = data.results.total_load.filter((_, i) => i % sampleRate === 0);
-    const sampledSOC = data.results.battery_soc ? data.results.battery_soc.filter((_, i) => i % sampleRate === 0) : [];
+    const sampledTime = summary.time.filter((_, i) => i % sampleRate === 0);
+    const sampledGen = summary.total_generation.filter((_, i) => i % sampleRate === 0);
+    const sampledLoad = summary.total_load.filter((_, i) => i % sampleRate === 0);
+    const sampledSOC = summary.battery_soc_avg
+        ? summary.battery_soc_avg.filter((_, i) => i % sampleRate === 0)
+        : [];
+    const sampledImport = summary.grid_import_series ? summary.grid_import_series.filter((_, i) => i % sampleRate === 0) : [];
+    const sampledExport = summary.grid_export_series ? summary.grid_export_series.filter((_, i) => i % sampleRate === 0) : [];
+    const sampledTrade = summary.internal_trade ? summary.internal_trade.filter((_, i) => i % sampleRate === 0) : [];
 
     const ctx1 = document.getElementById('communityChart').getContext('2d');
     if (window.communityChart instanceof Chart) {
@@ -134,34 +143,8 @@ function displayCharts(data) {
         }
     });
 
-    if (sampledSOC.length > 0) {
-        const ctx2 = document.getElementById('socChart').getContext('2d');
-        if (window.socChart instanceof Chart) {
-            window.socChart.destroy();
-        } else if (window.socChart) {
-            window.socChart = null;
-        }
-
-        window.socChart = new Chart(ctx2, {
-            type: 'line',
-            data: {
-                labels: sampledTime,
-                datasets: [{
-                    label: 'Battery SOC (%)',
-                    data: sampledSOC,
-                    borderColor: '#10b981',
-                    backgroundColor: 'rgba(16,185,129,0.1)',
-                    fill: true,
-                    tension: 0.4
-                }]
-            },
-            options: {
-                responsive: true,
-                plugins: { title: { display: true, text: 'Battery SOC' } },
-                scales: { y: { beginAtZero: true, max: 100 } }
-            }
-        });
-    }
+    renderFlowChart(sampledTime, sampledImport, sampledExport, sampledTrade);
+    setupNodeSocControls(data);
 }
 
 function showStatus(message, type) {
@@ -183,4 +166,121 @@ function showStatus(message, type) {
     bar.style.border = `2px solid ${c.border}`;
 
     if (type !== 'info') setTimeout(() => bar.style.display = 'none', 5000);
+}
+
+function renderFlowChart(labels, imports, exports, trade) {
+    const ctx = document.getElementById('flowChart').getContext('2d');
+    if (flowChart) {
+        flowChart.destroy();
+    }
+
+    flowChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [{
+                label: 'Grid Import (kW)',
+                data: imports,
+                borderColor: '#ef4444',
+                backgroundColor: 'rgba(239,68,68,0.1)',
+                fill: true,
+                tension: 0.3
+            }, {
+                label: 'Grid Export (kW)',
+                data: exports,
+                borderColor: '#3b82f6',
+                backgroundColor: 'rgba(59,130,246,0.1)',
+                fill: true,
+                tension: 0.3
+            }, {
+                label: 'Internal Trade (kW)',
+                data: trade,
+                borderColor: '#f59e0b',
+                backgroundColor: 'rgba(245,158,11,0.1)',
+                fill: true,
+                tension: 0.3
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: { title: { display: true, text: 'Grid vs P2P Exchanges' } },
+            scales: {
+                x: { title: { display: true, text: 'Time (hours)' } },
+                y: { title: { display: true, text: 'Power (kW)' } }
+            }
+        }
+    });
+}
+
+function setupNodeSocControls(data) {
+    const select = document.getElementById('nodeSocSelect');
+    if (!select || !data.per_node) return;
+    const socMatrix = data.per_node.battery_soc_pct;
+    const mask = data.per_node.has_battery || [];
+    if (!socMatrix || socMatrix.length === 0 || !socMatrix[0]) {
+        select.innerHTML = '<option>No battery data</option>';
+        batteryNodeIndices = [];
+        renderNodeSocChart();
+        return;
+    }
+    batteryNodeIndices = mask
+        .map((has, idx) => has ? idx : -1)
+        .filter(idx => idx >= 0);
+    if (batteryNodeIndices.length === 0) {
+        select.innerHTML = '<option>No battery data</option>';
+        renderNodeSocChart();
+        return;
+    }
+    select.innerHTML = '';
+    batteryNodeIndices.forEach(idx => {
+        const option = document.createElement('option');
+        option.value = idx;
+        option.textContent = `Node ${idx + 1}`;
+        select.appendChild(option);
+    });
+    select.onchange = () => renderNodeSocChart(parseInt(select.value, 10));
+    select.value = batteryNodeIndices[0];
+    renderNodeSocChart(batteryNodeIndices[0]);
+}
+
+function renderNodeSocChart(nodeIndex) {
+    if (!latestResultsData || !latestResultsData.per_node) return;
+    if (!batteryNodeIndices || batteryNodeIndices.length === 0) {
+        if (nodeSocChart) {
+            nodeSocChart.destroy();
+            nodeSocChart = null;
+        }
+        return;
+    }
+    const socMatrix = latestResultsData.per_node.battery_soc_pct;
+    if (!socMatrix || socMatrix.length === 0 || !socMatrix[0]) return;
+    const idx = batteryNodeIndices.includes(nodeIndex) ? nodeIndex : batteryNodeIndices[0];
+
+    const labels = latestResultsData.results.time;
+    const series = socMatrix.map(row => row[idx]);
+
+    const ctx = document.getElementById('nodeSocChart').getContext('2d');
+    if (nodeSocChart) {
+        nodeSocChart.destroy();
+    }
+
+    nodeSocChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [{
+                label: `Node ${idx + 1} SOC (%)`,
+                data: series,
+                borderColor: '#10b981',
+                backgroundColor: 'rgba(16,185,129,0.1)',
+                fill: true,
+                tension: 0.3
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: { title: { display: true, text: 'Battery State of Charge' } },
+            scales: { y: { min: 0, max: 100 } }
+        }
+    });
 }

@@ -24,7 +24,6 @@ function main()
     println("  DT: $(params.dt) hours")
     println("  Duration: $(params.simulation_hours) hours")
     println("  Nodes: $(length(community.nodes))")
-    println("  Cooperative: $(community.is_cooperative)")
     
     # 2. Run Simulation
     println("Running simulation...")

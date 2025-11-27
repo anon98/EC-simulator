@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LEC Simulator - Results</title>
+    <title>LEC Simulator - Results Viewer</title>
     <link rel="stylesheet" href="style.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
@@ -12,27 +12,81 @@
 <body>
     <div class="container">
         <header>
-            <h1>📊 LEC Simulation Results</h1>
-            <div class="controls">
-                <button onclick="window.location.href='index.html'"
-                    style="background: #64748b; color: white; padding: 8px 16px; border: none; border-radius: 5px; cursor: pointer; margin-right: 10px;">←
-                    Back to Hub</button>
-
-                <input type="text" id="scenarioIdInput" placeholder="Enter Scenario ID"
-                    style="padding: 8px; border: 2px solid #e2e8f0; border-radius: 5px; margin-right: 10px; width: 200px;">
-
-                <select id="marketModelSelect"
-                    style="padding: 8px; border: 2px solid #e2e8f0; border-radius: 5px; margin-right: 10px;">
-                    <option value="P2PNashBargaining">P2P Nash Bargaining</option>
-                    <option value="CommunitySelfConsumption">Community Self-Consumption</option>
-                    <option value="SDRPricing">SDR Pricing</option>
-                    <option value="PayAsClear">Pay-as-Clear</option>
-                </select>
-
-                <button onclick="runSimulation()"
-                    style="background: #10b981; color: white; padding: 8px 16px; border: none; border-radius: 5px; cursor: pointer; margin-right: 10px;">▶
+            <div>
+                <h1>📊 LEC Simulation Results</h1>
+                <p>Run simulations and inspect KPIs for any generated scenario.</p>
             </div>
+            <button onclick="window.location.href='index.html'"
+                style="background:#64748b;color:white;border:none;border-radius:6px;padding:10px 16px;cursor:pointer;">
+                ← Back to Hub
+            </button>
+        </header>
+
+        <div class="controls" style="margin-bottom: 20px; display:flex; align-items:center; gap:10px;">
+            <input type="text" id="scenarioIdInput" placeholder="Scenario ID"
+                style="padding: 10px; border: 1px solid #ddd; border-radius: 6px; flex: 1;">
+            <select id="marketModelSelect"
+                style="padding: 10px; border: 1px solid #ddd; border-radius: 6px; margin: 0 10px;">
+                <option value="P2PNashBargaining">P2P Nash Bargaining</option>
+                <option value="CommunitySelfConsumption">Community Self-Consumption</option>
+                <option value="SDRPricing">SDR Pricing</option>
+                <option value="PayAsClear">Pay-as-Clear</option>
+            </select>
+            <button onclick="runSimulation()" style="padding: 10px 20px; border: none; border-radius: 6px; background: #10b981; color: white; font-weight: 600; cursor: pointer;">
+                ▶ Run Simulation
+            </button>
+        </div>
+
+        <div id="statusBar" style="display:none; padding: 12px; border-radius: 6px; margin-bottom: 20px;"></div>
+
+        <div class="kpi-grid">
+            <div class="kpi-card">
+                <h3>Community Savings</h3>
+                <div class="value" id="kpi-profit">--</div>
+            </div>
+            <div class="kpi-card">
+                <h3>Total Generation</h3>
+                <div class="value" id="kpi-gen">--</div>
+            </div>
+            <div class="kpi-card">
+                <h3>Total Load</h3>
+                <div class="value" id="kpi-load">--</div>
+            </div>
+            <div class="kpi-card">
+                <h3>Grid Import</h3>
+                <div class="value" id="kpi-import">--</div>
+            </div>
+            <div class="kpi-card">
+                <h3>Grid Export</h3>
+                <div class="value" id="kpi-export">--</div>
+            </div>
+            <div class="kpi-card">
+                <h3>Self-Sufficiency</h3>
+                <div class="value" id="kpi-ssr">--</div>
+            </div>
+            <div class="kpi-card">
+                <h3>Self-Consumption</h3>
+                <div class="value" id="kpi-scr">--</div>
+            </div>
+        </div>
+
+        <div class="charts-grid">
+            <div class="chart-container">
+                <canvas id="communityChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <canvas id="flowChart"></canvas>
+            </div>
+            <div class="chart-container">
+                <div class="form-group">
+                    <label for="nodeSocSelect">Node Battery SOC:</label>
+                    <select id="nodeSocSelect"></select>
+                </div>
+                <canvas id="nodeSocChart"></canvas>
+            </div>
+        </div>
     </div>
+
     <script src="results_app.js"></script>
 </body>
 

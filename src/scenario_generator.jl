@@ -6,11 +6,14 @@ using Random
 using CSV
 using DataFrames
 using JSON
+using Logging
 
 # Note: Assumes ScenarioConfig, DataSchema, DataGeneration are already loaded
 using ..ScenarioConfig
 using ..DataSchema
 using ..DataGeneration
+using ..Utils
+using ..Simulation
 
 export generate_scenario, export_scenario
 
@@ -24,6 +27,18 @@ struct NodeAssignment
     has_battery::Bool
     pv_capacity::Float64
     in_cooperative::Bool
+end
+
+const PV_CAPACITY_BANDS = Dict(
+    "residential" => (3.0, 10.0),     # kW_peak
+    "commercial"  => (30.0, 120.0),
+    "industrial"  => (150.0, 600.0)
+)
+
+function sample_pv_capacity(node_type::String)
+    band = get(PV_CAPACITY_BANDS, node_type, (20.0, 80.0))
+    low, high = band
+    return low + (high - low) * rand()
 end
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -213,18 +228,7 @@ function assign_nodes(scenario::Scenario)
             Random.seed!(hash((scenario.name, node_id, "battery")))
             has_battery = rand() < scenario.battery_penetration
 
-            # PV capacity based on type (kW)
-            pv_capacity = if has_pv
-                if node_type == "residential"
-                    5.0 + 3.0 * rand()    # 5–8 kW
-                elseif node_type == "commercial"
-                    15.0 + 10.0 * rand()  # 15–25 kW
-                else
-                    50.0 + 50.0 * rand()  # 50–100 kW, industrial or other
-                end
-            else
-                0.0
-            end
+            pv_capacity = has_pv ? sample_pv_capacity(node_type) : 0.0
 
             # Cooperative membership
             Random.seed!(hash((scenario.name, node_id, "coop")))
@@ -244,7 +248,8 @@ end
 # Main scenario generation
 # ──────────────────────────────────────────────────────────────────────────────
 
-function generate_scenario(scenario::Scenario; output_dir::String="scenarios/$(scenario.name)")
+function generate_scenario(scenario::Scenario; output_dir::String="scenarios/$(scenario.name)",
+                           run_simulation_after::Bool=true)
     println("Generating scenario: $(scenario.name)")
     mkpath(output_dir)
     mkpath(joinpath(output_dir, "data"))
@@ -358,6 +363,21 @@ function generate_scenario(scenario::Scenario; output_dir::String="scenarios/$(s
     save_scenario(scenario, joinpath(output_dir, "scenario.json"))
 
     println("Scenario generation complete: $output_dir")
+    
+    if run_simulation_after
+        config_path = joinpath(output_dir, "config.json")
+        results_path = joinpath(output_dir, "simulation_results.json")
+        try
+            params, community = load_config(config_path)
+            sim_results = run_simulation(params, community)
+            kpis = calculate_kpis(sim_results, params)
+            export_to_json(sim_results, kpis, results_path)
+            println("  Simulation results saved to: $results_path")
+        catch e
+            @warn "Failed to run simulation for generated scenario" exception=(e, catch_backtrace())
+        end
+    end
+    
     return output_dir
 end
 

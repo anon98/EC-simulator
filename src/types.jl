@@ -5,11 +5,11 @@ export AbstractMarketModel, P2PNashBargaining, CommunitySelfConsumption, SDRPric
 
 struct SimulationParams
     dt::Float64
-    simulation_hours::Int
+    simulation_hours::Float64
     num_steps::Int
     
-    function SimulationParams(dt::Float64, simulation_hours::Int)
-        num_steps = Int(simulation_hours / dt) + 1
+    function SimulationParams(dt::Float64, simulation_hours::Float64)
+        num_steps = Int(round(simulation_hours / dt)) + 1
         new(dt, simulation_hours, num_steps)
     end
 end
@@ -21,9 +21,15 @@ mutable struct Battery
     soc::Float64 # Current SOC in kWh
     min_soc::Float64
     max_soc::Float64
+    charge_efficiency::Float64
+    discharge_efficiency::Float64
     
-    function Battery(;capacity=200.0, max_charge_rate=50.0, max_discharge_rate=50.0, initial_soc=0.5, min_soc=0.2, max_soc=0.8)
-        new(capacity, max_charge_rate, max_discharge_rate, initial_soc * capacity, min_soc, max_soc)
+    function Battery(;capacity=200.0, max_charge_rate=50.0, max_discharge_rate=50.0,
+                      initial_soc=0.5, min_soc=0.2, max_soc=0.8,
+                      charge_efficiency=0.95, discharge_efficiency=0.95)
+        new(capacity, max_charge_rate, max_discharge_rate,
+            initial_soc * capacity, min_soc, max_soc,
+            charge_efficiency, discharge_efficiency)
     end
 end
 
@@ -46,6 +52,8 @@ mutable struct Node
     current_generation::Float64
     current_load::Float64
     net_power::Float64 # generation - load
+    solar_profile::Union{Vector{Float64}, Nothing}
+    load_profile::Union{Vector{Float64}, Nothing}
 end
 
 # --- Market Models ---

@@ -7,13 +7,13 @@ using Dates
 include("scenario_config.jl")
 include("data_schema.jl")
 include("data_generation.jl")
-include("scenario_generator.jl")
 
 # Include main simulator components
 include("types.jl")
 include("market.jl")
 include("utils.jl")
 include("simulation.jl")
+include("scenario_generator.jl")
 
 using .ScenarioConfig
 using .DataSchema
@@ -222,15 +222,19 @@ function handle_get_node_data(req::HTTP.Request)
         solar_data = []
         
         # Helper to read value column from CSV
-        function read_csv_values(filepath)
+        function read_csv_values(filepath; value_col::Int=2)
             lines = readlines(filepath)
             # Skip header
-            return [parse(Float64, split(line, ",")[2]) for line in lines[2:end]]
+            return [parse(Float64, split(line, ",")[value_col]) for line in lines[2:end]]
         end
         
         try
-            load_vals = read_csv_values(load_file)
-            solar_vals = isfile(solar_file) ? read_csv_values(solar_file) : zeros(length(load_vals))
+            load_vals = read_csv_values(load_file; value_col=2)
+            solar_vals = if isfile(solar_file)
+                read_csv_values(solar_file; value_col=3)
+            else
+                zeros(length(load_vals))
+            end
             
             # Create simple timestamp array (0 to 24h)
             timestamps = collect(0:length(load_vals)-1) ./ (length(load_vals)/24)

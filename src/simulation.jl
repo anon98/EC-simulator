@@ -57,24 +57,40 @@ function run_simulation(params::SimulationParams, community::Community)
     solar_gen_res = zeros(num_steps, num_nodes)
     load_res = zeros(num_steps, num_nodes)
     battery_soc_res = zeros(num_steps, num_nodes)
+    battery_soc_pct_res = zeros(num_steps, num_nodes)
     grid_interactions_res = zeros(num_steps, num_nodes)
     node_profits = zeros(num_nodes)
+    grid_price_series = zeros(num_steps)
+    battery_mask = [node.battery !== nothing for node in community.nodes]
+    p2p_flows_res = zeros(num_steps, num_nodes)
+    internal_trade_res = zeros(num_steps)
     
     # Initialize SOC
     for (i, node) in enumerate(community.nodes)
         if node.battery !== nothing
             battery_soc_res[1, i] = node.battery.soc
+            battery_soc_pct_res[1, i] = node.battery.soc / node.battery.capacity * 100
         end
     end
     
     for t_idx in 1:num_steps-1
         t = times[t_idx]
         current_grid_price = get_grid_price(t)
+        grid_price_series[t_idx] = current_grid_price
         
         # 1. Calculate Generation and Load for all nodes
         for (i, node) in enumerate(community.nodes)
-            gen = node.pv !== nothing ? calculate_solar_generation(t, node.pv) : 0.0
-            load = calculate_load(t, node.load)
+            if node.solar_profile !== nothing && t_idx <= length(node.solar_profile)
+                gen = node.solar_profile[t_idx]
+            else
+                gen = node.pv !== nothing ? calculate_solar_generation(t, node.pv) : 0.0
+            end
+            
+            if node.load_profile !== nothing && t_idx <= length(node.load_profile)
+                load = node.load_profile[t_idx]
+            else
+                load = calculate_load(t, node.load)
+            end
             
             node.current_generation = gen
             node.current_load = load
@@ -86,7 +102,9 @@ function run_simulation(params::SimulationParams, community::Community)
         
         # 2. Market / Cooperative Logic
         # Distribute excess power among cooperative nodes
-        p2p_transactions, _, _ = solve_market(community, current_grid_price, params.dt)
+        p2p_transactions, transaction_matrix, _ = solve_market(community, current_grid_price, params.dt)
+        p2p_flows_res[t_idx, :] .= p2p_transactions
+        internal_trade_res[t_idx] = sum(max(0.0, p2p_transactions[i]) for i in 1:num_nodes)
         
         # 3. Battery and Grid Interaction
         for (i, node) in enumerate(community.nodes)
@@ -110,13 +128,16 @@ function run_simulation(params::SimulationParams, community::Community)
             if effective_net_power > 0
                 # Excess power
                 if node.battery !== nothing
-                    charge_power = min(effective_net_power, node.battery.max_charge_rate)
+                    battery = node.battery
+                    charge_power = min(effective_net_power, battery.max_charge_rate)
                     
-                    # Check capacity constraints
-                    max_energy_can_add = node.battery.max_soc * node.battery.capacity - node.battery.soc
-                    charge_power = min(charge_power, max_energy_can_add / params.dt)
+                    energy_room = battery.max_soc * battery.capacity - battery.soc
+                    capacity_limited_power = energy_room <= 0 ? 0.0 :
+                        energy_room / (params.dt * battery.charge_efficiency)
+                    charge_power = min(charge_power, capacity_limited_power)
                     
-                    node.battery.soc += charge_power * params.dt
+                    charged_energy = charge_power * params.dt * battery.charge_efficiency
+                    battery.soc += charged_energy
                     
                     excess_to_grid = effective_net_power - charge_power
                     grid_interactions_res[t_idx, i] = -excess_to_grid # Negative means export
@@ -129,13 +150,16 @@ function run_simulation(params::SimulationParams, community::Community)
                 # Deficit power
                 deficit = -effective_net_power
                 if node.battery !== nothing
-                    discharge_power = min(deficit, node.battery.max_discharge_rate)
+                    battery = node.battery
+                    available_energy = battery.soc - battery.min_soc * battery.capacity
+                    deliverable_power = available_energy <= 0 ? 0.0 :
+                        (available_energy * battery.discharge_efficiency) / params.dt
+                    discharge_power = min(deficit, battery.max_discharge_rate, deliverable_power)
                     
-                    # Check energy constraints
-                    max_energy_can_draw = node.battery.soc - node.battery.min_soc * node.battery.capacity
-                    discharge_power = min(discharge_power, max_energy_can_draw / params.dt)
-                    
-                    node.battery.soc -= discharge_power * params.dt
+                    delivered_energy = discharge_power * params.dt
+                    if discharge_power > 0
+                        battery.soc -= delivered_energy / battery.discharge_efficiency
+                    end
                     
                     deficit_from_grid = deficit - discharge_power
                     grid_interactions_res[t_idx, i] = deficit_from_grid # Positive means import
@@ -147,17 +171,30 @@ function run_simulation(params::SimulationParams, community::Community)
             end
             
             # Record SOC for next step
-            battery_soc_res[t_idx+1, i] = node.battery !== nothing ? node.battery.soc : 0.0
+            if node.battery !== nothing
+                battery_soc_res[t_idx+1, i] = node.battery.soc
+                battery_soc_pct_res[t_idx+1, i] = node.battery.soc / node.battery.capacity * 100
+            else
+                battery_soc_res[t_idx+1, i] = 0.0
+                battery_soc_pct_res[t_idx+1, i] = 0.0
+            end
         end
     end
+
+    grid_price_series[end] = get_grid_price(times[end])
     
     results = Dict(
         "times" => times,
         "solar_generation" => solar_gen_res,
         "load_profile" => load_res,
         "battery_soc" => battery_soc_res,
+        "battery_soc_pct" => battery_soc_pct_res,
+        "battery_mask" => battery_mask,
+        "p2p_flows" => p2p_flows_res,
+        "internal_trade" => internal_trade_res,
         "grid_interactions" => grid_interactions_res,
-        "node_profits" => node_profits
+        "node_profits" => node_profits,
+        "grid_prices" => grid_price_series
     )
     
     return results

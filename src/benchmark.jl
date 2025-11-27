@@ -35,9 +35,10 @@ function run_benchmark()
         
         results_summary[model_name] = kpis
         
-        println("  SSR: $(round(kpis["SSR"], digits=3))")
-        println("  SCR: $(round(kpis["SCR"], digits=3))")
-        println("  Profit: $(round(kpis["Total Profit"], digits=2))")
+        println("  SSR: $(round(kpis["ssr"], digits=3))")
+        println("  SCR: $(round(kpis["scr"], digits=3))")
+        savings = get(kpis, "community_savings_eur", kpis["cooperative_profit"])
+        println("  Savings: $(round(savings, digits=2))")
         
         # Export for dashboard (overwriting for now, or could save separate files)
         export_to_json(results, kpis, "dashboard/data_$model_name.json")
@@ -48,7 +49,7 @@ function run_benchmark()
     
     # Compare Profits Plot
     model_names = collect(keys(results_summary))
-    profits = [results_summary[m]["Total Profit"] for m in model_names]
+    profits = [get(results_summary[m], "community_savings_eur", results_summary[m]["cooperative_profit"]) for m in model_names]
     
     p = bar(model_names, profits, title="Total Community Profit by Market Model", legend=false, ylabel="Profit (Currency)")
     mkpath("outputs")

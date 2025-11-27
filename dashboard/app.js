@@ -20,17 +20,18 @@ async function loadData() {
 
 function updateDashboard(data) {
     // Update KPIs
-    document.getElementById('ssrValue').textContent = (data.kpis["SSR"] * 100).toFixed(1) + "%";
-    document.getElementById('scrValue').textContent = (data.kpis["SCR"] * 100).toFixed(1) + "%";
-    document.getElementById('profitValue').textContent = data.kpis["Total Profit"].toFixed(2);
-    document.getElementById('importValue').textContent = data.kpis["Total Import (kWh)"].toFixed(1);
+    document.getElementById('ssrValue').textContent = (data.kpis["ssr"] * 100).toFixed(1) + "%";
+    document.getElementById('scrValue').textContent = (data.kpis["scr"] * 100).toFixed(1) + "%";
+    const savings = data.kpis["community_savings_eur"] ?? data.kpis["cooperative_profit"] ?? 0;
+    document.getElementById('profitValue').textContent = savings.toFixed(2);
+    document.getElementById('importValue').textContent = (data.kpis["grid_import_kwh"] ?? 0).toFixed(1);
 
-    const times = data.results.times;
-    const netTransactions = data.results.grid_interactions.map(row => row.reduce((a, b) => a + b, 0));
+    const times = data.results.time;
+    const netTransactions = data.results.net_grid_flow;
 
     // Prepare Chart Data
     updateCommunityChart(times, netTransactions);
-    updateSocChart(times, data.results.battery_soc);
+    updateSocChart(times, data.results.battery_soc_avg);
 }
 
 function updateCommunityChart(labels, data) {
@@ -72,11 +73,13 @@ function updateCommunityChart(labels, data) {
 
 function updateSocChart(labels, socData) {
     const ctx = document.getElementById('socChart').getContext('2d');
-
-    // socData is [steps][nodes], need to transpose or pick a few nodes
-    // Let's plot average SOC
-    const numNodes = socData[0].length;
-    const avgSoc = socData.map(row => row.reduce((a, b) => a + b, 0) / numNodes);
+    if (!socData || socData.length === 0) {
+        if (socChart) {
+            socChart.destroy();
+            socChart = null;
+        }
+        return;
+    }
 
     if (socChart) {
         socChart.destroy();
@@ -87,8 +90,8 @@ function updateSocChart(labels, socData) {
         data: {
             labels: labels,
             datasets: [{
-                label: 'Average Battery Energy (kWh)',
-                data: avgSoc,
+                label: 'Average Battery SOC (%)',
+                data: socData,
                 borderColor: '#50e3c2',
                 backgroundColor: 'rgba(80, 227, 194, 0.1)',
                 fill: true,
@@ -106,7 +109,7 @@ function updateSocChart(labels, socData) {
             },
             scales: {
                 x: { title: { display: true, text: 'Time (h)' } },
-                y: { title: { display: true, text: 'Energy (kWh)' } }
+                y: { title: { display: true, text: 'State of Charge (%)' }, min: 0, max: 100 }
             }
         }
     });
